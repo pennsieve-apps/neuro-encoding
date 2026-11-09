@@ -9,7 +9,7 @@ Institute; [Viejo et al. 2023, eLife](https://doi.org/10.7554/eLife.85786)), and
 **[JAX](https://github.com/jax-ml/jax)** (Bradbury, Frostig, Hawkins and colleagues, Google). The
 measures it reports were introduced by others: spatial information (Skaggs, McNaughton and
 colleagues; as used by [Markus et al. 1994](https://doi.org/10.1002/hipo.450040404)), place cells
-([O'Keefe & Dostrovsky 1971](https://pubmed.ncbi.nlm.nih.gov/5124915/)), head-direction cells
+([O'Keefe & Dostrovsky 1971](https://doi.org/10.1016/0006-8993(71)90358-1)), head-direction cells
 ([Taube, Muller & Ranck 1990](https://doi.org/10.1523/JNEUROSCI.10-02-00420.1990)), the speed score
 ([Kropff et al. 2015](https://doi.org/10.1038/nature14622)), Poisson GLMs of single neurons
 ([Pillow et al. 2008](https://doi.org/10.1038/nature07140)) and the false discovery rate
@@ -117,7 +117,7 @@ Run on neuro-align's output of the demo data (defaults; native arm64 run, 6 thre
 
 | Session | Neurons | Result |
 |---|---|---|
-| Grosmark & Buzsáki `sub-Buddy` (linear track, neuro-align `EPOCH=run`, 57 laps, 266 s running) | 58 CA1 units (38 pyramidal, 20 interneurons) | **29 place cells, all pyramidal (29/38 = 76%)**: 15 with fields in both running directions, 10 in the runs towards lower position only, 4 towards higher only; median spatial information of place cells 1.15 bits/spike, median split-half stability 0.58; the place-cell sequence tiles the 2.3 m track in both directions and survives cross-validation (`_place_sequence.png`). GLM: position needed for 27 pyramidal cells and 12 interneurons, speed for 19 neurons; median deviance explained 0.11 (pyramidal), 0.015 (interneurons). |
+| Grosmark & Buzsáki `sub-Buddy` (linear track, neuro-align `EPOCH=run`, 57 laps, 266 s running) | 58 CA1 units (38 pyramidal, 20 interneurons) | **29 place cells, all pyramidal (29/38 = 76%)**: 15 with fields in both running directions, 10 in the runs towards lower position only, 4 towards higher only; median spatial information of place cells 1.15 bits/spike, median split-half stability 0.58; the place-cell sequence tiles the running path (about 1.9 m of the linearised 2D path, which reaches past the ends of the 1.6 m track onto the end platforms) in both directions and survives cross-validation (`_place_sequence.png`). GLM: position needed for 27 pyramidal cells and 12 interneurons, speed for 19 neurons; median deviance explained 0.11 (pyramidal), 0.015 (interneurons). |
 | IBL `sub-NR-0031_ses-caa5dddc` (whole session) | 186 good units in 13 regions | Tuned to wheel velocity: 94 (61% in the anterior pretectal nucleus, 66% in the midbrain reticular nucleus, 42% in CA1); to pupil diameter 55; to paw or nose speed (Lightning Pose) 71-80. GLM (5 covariates): wheel velocity needed for 56 units, nose speed 35, left paw 31, right paw 26, pupil 21; median deviance explained 0.057 (positive for 90% of units). |
 | CA1 1p calcium, WT and 5xFAD, 6 sessions (DANDI 002047; DRIADA calcium events) | 42-264 accepted ROIs per session | While running (speed ≥ 3 cm/s, 380-460 s per session), few ROIs carry significant 2D spatial information: 1, 4, 1, 2, 4 and 39 of 42-264 ROIs; speed-tuned 0-137; head direction 0-4. Without the running filter (`PLACE_RUN_ONLY=false`) 141 of 264 ROIs in sub-F14 are "spatial", which we take to be confounded by where the mouse rests; the defaults keep the conservative answer. Calcium events are sparse, so 6-8 minutes of running give little power per ROI. |
 
@@ -203,8 +203,7 @@ lists in `CITATION.cff`.
   1990;10(2):420-435. doi:10.1523/JNEUROSCI.10-02-00420.1990, PMID 2303851.
 - **Place cells**: O'Keefe J, Dostrovsky J. The hippocampus as a spatial map. Preliminary evidence
   from unit activity in the freely-moving rat. *Brain Res* 1971;34(1):171-175.
-  https://pubmed.ncbi.nlm.nih.gov/5124915/ (its DOI has parentheses the citation checker cannot
-  parse; it is in `CITATION.cff`).
+  doi:10.1016/0006-8993(71)90358-1, PMID 5124915.
 - **GLMs of single neurons**: Pillow JW, Shlens J, Paninski L, Sher A, Litke AM, Chichilnisky EJ,
   Simoncelli EP. Spatio-temporal correlations and visual signalling in a complete neuronal
   population. *Nature* 2008;454(7207):995-999. doi:10.1038/nature07140, PMID 18650810.
