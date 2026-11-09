@@ -184,10 +184,15 @@ parameters:
     min: 0
 inputs:
   - name: aligned
-    description: neuro-align's output (neuro-align/<session_id>/aligned.npz and manifest.json).
+    description: >-
+      neuro-align's output (neuro-align/<session_id>/aligned.npz and manifest.json are read; its other
+      files are accepted and ignored). The media types are those neuro-align's `aligned` output declares.
     mediaTypes:
       - application/octet-stream
+      - application/vnd.apache.parquet
       - application/json
+      - text/csv
+      - image/png
     placement: subfolder
     required: true
 outputs:
