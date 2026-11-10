@@ -317,8 +317,16 @@ def glm_session(s: Session, X: np.ndarray, variables: list[dict], params: dict, 
         else:
             rebinned[n] = v[: nb * g].reshape(nb, g).mean(axis=1)[vb]
     covs = build_covariates(rebinned, kinds, params["GLM_N_BASIS"])
+    # At most GLM_MAX_NEURONS neurons (the most active in the GLM bins) are fitted: the cost grows with the
+    # number of neurons and the LBFGS iterations they need. The others get NaN GLM columns.
+    N = Yn.shape[1]
+    fitted = np.arange(N)
+    if params["GLM_MAX_NEURONS"] and N > params["GLM_MAX_NEURONS"]:
+        activity = Yn.mean(axis=0)
+        fitted = np.sort(np.argsort(-activity, kind="stable")[: params["GLM_MAX_NEURONS"]])
+    skipped = np.setdiff1d(np.arange(N), fitted)
     tg = time.monotonic()
-    res = run_glm(Yn, covs, params["GLM_FOLDS"], int(round(params["GLM_GAP_S"] / (g * s.bin_size))),
+    res = run_glm(Yn[:, fitted], covs, params["GLM_FOLDS"], int(round(params["GLM_GAP_S"] / (g * s.bin_size))),
                   params["GLM_RIDGE"], params["N_SHUFFLES_GLM"], int(round(params["MIN_SHIFT_S"] / (g * s.bin_size))),
                   rng, log_every=progress, maxiter=params["GLM_MAX_ITER"])
     for c in res["covariates"].values():
@@ -331,10 +339,31 @@ def glm_session(s: Session, X: np.ndarray, variables: list[dict], params: dict, 
         c["z"] = z
         c["q"] = S.bh_fdr(p_emp)
         c["significant"] = (c["delta_d2"] > 0) & (p_emp <= 1.0 / (c["null"].shape[0] + 1) + 1e-12)
+    if len(skipped):
+        # back to one entry per neuron, NaN / False for the neurons not fitted
+        def full(a, fill=np.nan):
+            out = np.full(N, fill, dtype=np.asarray(a).dtype if fill is False else float)
+            out[fitted] = a
+            return out
+
+        for k in ("d2", "ll_full", "ll_null"):
+            res[k] = full(res[k])
+        for c in res["covariates"].values():
+            for k in ("delta_d2", "bits_per_spike", "p", "z", "q"):
+                c[k] = full(c[k])
+            c["significant"] = full(c["significant"], False)
+            nl = np.full((c["null"].shape[0], N), np.nan)
+            nl[:, fitted] = c["null"]
+            c["null"] = nl
+        res.setdefault("warnings", []).append(
+            f"GLM fitted on the {len(fitted)} most active of {N} neurons (GLM_MAX_NEURONS="
+            f"{params['GLM_MAX_NEURONS']}); {len(skipped)} skipped (listed in summary.json); tuning statistics "
+            f"cover every neuron")
     res.update(bin_s=g * s.bin_size, n_bins=int(vb.sum()), covariate_names=[c.name for c in covs],
-               n_features=int(sum(c.n_basis for c in covs)), seconds=round(time.monotonic() - tg, 1))
+               n_features=int(sum(c.n_basis for c in covs)), seconds=round(time.monotonic() - tg, 1),
+               n_fitted=int(len(fitted)), skipped_neurons=[s.ids[i] for i in skipped])
     progress(f"{s.sid}: GLM {len(covs)} covariates, {res['n_features']} features, {res['n_bins']} bins of "
-             f"{res['bin_s']:.3g} s, {len(s.ids)} neurons, {res['fits']['n']} fits "
+             f"{res['bin_s']:.3g} s, {res['n_fitted']} of {len(s.ids)} neurons, {res['fits']['n']} fits "
              f"({res['fits']['stopped_at_maxiter']} stopped at GLM_MAX_ITER), {res['seconds']}s")
     if res["fits"]["stopped_at_maxiter"]:
         out_warn = (f"GLM: {res['fits']['stopped_at_maxiter']} of {res['fits']['n']} fits stopped at "

@@ -62,6 +62,7 @@ DEFAULTS = {
     "GLM_RIDGE": "0.001",
     "GLM_MAX_KEYPOINTS": "3",
     "GLM_MAX_ITER": "1000",
+    "GLM_MAX_NEURONS": "150",
     "SEED": "42",
     "THREADS": "0",
 }
@@ -90,7 +91,7 @@ def read_parameters(env=os.environ) -> dict:
     p["VARIABLES"] = None if not v or "auto" in [x.lower() for x in v] else v
     try:
         for k in ("N_SHUFFLES", "POSITION_BINS", "POSITION_BINS_2D", "N_BINS", "ANGLE_BINS", "FIELD_MIN_BINS",
-                  "N_SHUFFLES_GLM", "GLM_N_BASIS", "GLM_FOLDS", "GLM_MAX_KEYPOINTS", "GLM_MAX_ITER", "SEED", "THREADS"):
+                  "N_SHUFFLES_GLM", "GLM_N_BASIS", "GLM_FOLDS", "GLM_MAX_KEYPOINTS", "GLM_MAX_ITER", "GLM_MAX_NEURONS", "SEED", "THREADS"):
             p[k] = int(raw[k])
         for k in ("MIN_SHIFT_S", "FDR", "MIN_OCCUPANCY_S", "MIN_DURATION_S", "SMOOTH_BINS", "FIELD_THRESHOLD",
                   "FIELD_MIN_PEAK_HZ", "FIELD_MAX_FRACTION", "FIELD_BASELINE_PCT", "SPEED_SMOOTH_S", "GLM_BIN_S", "GLM_GAP_S", "GLM_RIDGE"):
@@ -111,6 +112,8 @@ def read_parameters(env=os.environ) -> dict:
     if min(p["POSITION_BINS"], p["POSITION_BINS_2D"], p["N_BINS"], p["ANGLE_BINS"]) < 3 or p["GLM_FOLDS"] < 2 \
             or p["GLM_N_BASIS"] < 3:
         raise ParameterError("bin counts must be >= 3, GLM_FOLDS >= 2, GLM_N_BASIS >= 3")
+    if p["GLM_MAX_NEURONS"] < 0:
+        raise ParameterError("GLM_MAX_NEURONS must be >= 0 (0 = all)")
     if min(p["MIN_SHIFT_S"], p["MIN_OCCUPANCY_S"], p["MIN_DURATION_S"], p["SMOOTH_BINS"], p["SPEED_SMOOTH_S"],
            p["GLM_GAP_S"], p["GLM_RIDGE"], p["THREADS"]) < 0 or p["GLM_BIN_S"] <= 0:
         raise ParameterError("durations, smoothing, GLM_RIDGE and THREADS must be >= 0 (GLM_BIN_S > 0)")
@@ -291,6 +294,8 @@ def headline(s, out: dict, df, params) -> dict:
     g = out.get("glm")
     if g and "d2" in g:
         h["glm"] = {"median_d2": float(np.nanmedian(g["d2"])), "bin_s": g["bin_s"], "n_features": g["n_features"],
+                    "n_fitted": g["n_fitted"], "skipped_neurons": g["skipped_neurons"],
+                    "fits": g.get("fits"),
                     "n_significant": {c: int(v["significant"].sum()) for c, v in g["covariates"].items()}}
     elif g:
         h["glm"] = g

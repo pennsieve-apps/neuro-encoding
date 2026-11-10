@@ -128,6 +128,21 @@ def test_no_place_cells_no_crash(tmp_path):
     assert F.place_sequence(tmp_path / "x.png", "s", [v], "rate") is None
 
 
+def test_glm_max_neurons(fixture_dir, tmp_path):
+    """The GLM covers the most active neurons only; the rest are listed and get empty GLM columns."""
+    kw = dict(FAST, VARIABLES="speed", GLM_MAX_NEURONS=10)
+    assert run(fixture_dir / "linked" / "aligned" / "neuro-align" / "sub-enc01_ses-track", tmp_path, **kw) == 0
+    top = tmp_path / "neuro-encoding"
+    h = json.loads((top / "summary.json").read_text())["sessions"]["sub-enc01_ses-track"]
+    assert h["glm"]["n_fitted"] == 10 and len(h["glm"]["skipped_neurons"]) == 40
+    df = table(top, "sub-enc01_ses-track")
+    assert df["glm_d2"].notna().sum() == 10
+    assert df.loc[h["glm"]["skipped_neurons"], "glm_d2"].isna().all()
+    assert df["speed_info"].notna().sum() == 50   # tuning covers every neuron
+    rates = df["epoch_mean_rate"]
+    assert rates.drop(h["glm"]["skipped_neurons"]).min() >= rates.loc[h["glm"]["skipped_neurons"]].max()
+
+
 def test_bad_parameters_and_no_input(fixture_dir, tmp_path):
     assert run(fixture_dir / "linked", tmp_path, N_SHUFFLES="5") == 2
     assert run(fixture_dir / "linked", tmp_path, FDR="2") == 2

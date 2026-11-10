@@ -75,7 +75,10 @@ class Fitter:
     def __init__(self, ridge: float, maxiter: int = 1000):
         import nemos as nmo
 
+        import jax
+
         self.nmo = nmo
+        self.jax = jax
         self.ridge = ridge
         self.maxiter = maxiter
         self.models: dict = {}
@@ -110,6 +113,9 @@ class Fitter:
                 self.unconverged_keys.add(key.split(":")[0])
             mu = np.asarray(m.predict(design[te]))
             tot += poisson_ll(Y[te], mu)
+            # NeMoS builds a new jitted solver on every fit and JAX keeps each compiled executable, so memory
+            # grows with the number of fits (a 6 GB container ran out on 490 Steinmetz units): drop them.
+            self.jax.clear_caches()
         return tot
 
 

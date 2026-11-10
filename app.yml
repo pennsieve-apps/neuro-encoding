@@ -189,6 +189,14 @@ parameters:
       time on large sessions.
     defaultValue: 1000
     min: 1
+  - name: GLM_MAX_NEURONS
+    type: integer
+    description: >-
+      The GLM is fitted on at most this many neurons, the most active ones in the GLM bins (its cost grows
+      with the number of neurons); the others get empty GLM columns and are listed in summary.json. Tuning and
+      information statistics cover every neuron. 0 = all.
+    defaultValue: 150
+    min: 0
   - name: SEED
     type: integer
     description: Seed of the circular shifts (numpy); results are reproducible.
