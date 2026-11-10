@@ -26,14 +26,14 @@ application:
     - statistics
 runtime:
   cpu: 4096
-  # Measured (see README "Runtime"): Grosmark (58 units) 444 s and 2.0 GB peak in Docker (amd64 emulation,
-  # 4 CPUs), 160 s natively; the GLM refits dominate. Large sessions (Steinmetz, 490 units x 29,400 bins)
-  # take hours with the default GLM settings, so this is a standard (container) step with an 8 h timeout;
-  # it is Lambda-safe all the same.
-  memory: 4096
+  # From native (arm64, 4-6 threads) measurements with the defaults (see README "Runtime"): Grosmark 2.5 min,
+  # Sosa 10.5 min, Steinmetz (490 units, GLM on 150) 20 min and 4.7 GB peak, the six 002047 sessions about
+  # 10 min each (about 60 min for the run). timeoutSeconds is 3x the slowest run (60 min); memory leaves
+  # room above Steinmetz's 4.7 GB. A standard (container) step; Lambda-safe all the same.
+  memory: 8192
   computeTypes:
     - standard
-  timeoutSeconds: 28800
+  timeoutSeconds: 10800
 parameters:
   - name: VARIABLES
     type: string

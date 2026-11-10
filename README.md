@@ -137,18 +137,19 @@ needs significant information. Figures (listed with captions in `summary.json`):
 
 ## Demo results
 
-Run on neuro-align's output of the demo data with the defaults, natively (arm64, 6 threads).
-Grosmark and Sosa were run with this version; for IBL, Steinmetz and the 002047 sessions the tuning
-results below are from the previous version (the changes since — ROI field rule, GLM p-values and
-iterations — do not touch them for spike data, and the 002047 ROI tuning test is information-based)
-and their GLM results are being re-run with the new GLM settings, so they are left out here.
+Run on neuro-align's output of the demo data with the defaults, natively (arm64, 4-6 threads).
+Grosmark, Sosa and Steinmetz were run with this version (Grosmark and Sosa on neuro-align 0.1.1
+output). For IBL and the 002047 sessions the tuning results are from the previous version (the
+changes since — ROI field rule, GLM p-values, iterations and `GLM_MAX_NEURONS` — do not touch them
+for spike data, and the 002047 tuning test is information-based); their GLM results with the new
+settings are not in yet, so they are left out here.
 
 | Session | Neurons | Result |
 |---|---|---|
 | Grosmark & Buzsáki `sub-Buddy` (linear track, neuro-align 0.1.1 `EPOCH=run`, 57 laps, 267 s running) | 58 CA1 units (38 pyramidal, 20 interneurons) | **29 place cells, all pyramidal (29/38 = 76%)**: 15 with fields in both running directions, 10 in the runs towards lower position only, 4 towards higher only; median spatial information of place cells 1.15 bits/spike, median split-half stability 0.58; the place-cell sequence tiles the track in both directions and survives cross-validation (`_place_sequence.png`). Position is in the authors' track coordinate (neuro-align maps its linearisation onto it): the analysed running range is −0.13 to 1.83 m, i.e. the 1.6 m track plus the edges of the end platforms, and place-cell peaks lie between −0.13 and 1.82 m. GLM (all 123 fits converged): position needed (ΔD² beats all 19 shifted refits) for 28 pyramidal cells and 11 interneurons, speed for 19 neurons; median deviance explained 0.11 (pyramidal), 0.016 (interneurons). |
-| Sosa, Plitt & Giocomo `sub-m11_ses-04` (DANDI 001361; 2p CA1, virtual linear track, neuro-align `EPOCH=run`, 80 laps, 702 s) | 168 accepted ROIs (deconvolved) | Spatial information significant (BH) for 130 ROIs (median q 1.8e-5); **130 place cells (77%)** with the baseline-relative field rule (the earlier rule, relative to the peak alone, found no field in any ROI because deconvolved activity stays at 0.2-0.4 × peak along the whole track); median field width 77 cm of the 450 cm track, median split-half stability 0.33. Speed tuning in 101 ROIs (28 positive, 73 negative). GLM (quasi-Poisson on deconvolved activity; fits did not meet NeMoS' convergence criterion): position needed for 90 ROIs, speed for 48; median deviance explained 0.0007, i.e. the GLM explains little of the frame-to-frame activity. |
+| Sosa, Plitt & Giocomo `sub-m11_ses-04` (DANDI 001361; 2p CA1, virtual linear track, neuro-align `EPOCH=run`, 80 laps, 702 s) | 168 accepted ROIs (deconvolved) | Spatial information significant (BH) for 130 ROIs (median q 1.8e-5); **130 place cells (77%)** with the baseline-relative field rule (the earlier rule, relative to the peak alone, found no field in any ROI because deconvolved activity stays at 0.2-0.4 × peak along the whole track); median field width 77 cm of the 450 cm track, median split-half stability 0.33. Speed tuning in 101 ROIs (28 positive, 73 negative). GLM on the 150 most active ROIs (`GLM_MAX_NEURONS`; 18 skipped and listed in summary.json); quasi-Poisson on deconvolved activity, 118 of 123 fits did not meet NeMoS' convergence criterion: position needed for 78 ROIs, speed for 46; median deviance explained 0.0006, i.e. the GLM explains little of the frame-to-frame activity. |
 | IBL `sub-NR-0031_ses-caa5dddc` (whole session) | 186 good units in 13 regions | Tuned to wheel velocity: 94 (61% in the anterior pretectal nucleus, 66% in the midbrain reticular nucleus, 42% in CA1); to pupil diameter 55; to paw or nose speed (Lightning Pose) 71-80. |
-| Steinmetz et al. `sub-Richards` (DANDI 000017, whole session) | 490 units (ORB, MOs, OLF, root) | Tuned to wheel velocity: 309; to pupil area 32. |
+| Steinmetz et al. `sub-Richards` (DANDI 000017, whole session) | 490 units (ORB 257, root 134, MOs 92, OLF 7) | Tuned to wheel velocity: 309 (74% of MOs, 63% of ORB units); to pupil area 32. GLM on the 150 most active units (340 skipped, listed in summary.json; all 123 fits converged): wheel velocity needed for 54, pupil for 17; median cross-validated deviance explained −0.015, i.e. for the typical unit wheel and pupil predict held-out blocks no better than its mean rate (slow drift across the 50-minute session dominates). |
 | CA1 1p calcium, WT and 5xFAD, 6 sessions (DANDI 002047; DRIADA calcium events) | 42-264 accepted ROIs per session | While running (speed ≥ 3 cm/s, 380-460 s per session), few ROIs carry significant 2D spatial information: 1, 4, 1, 2, 4 and 39 of 42-264 ROIs; speed-tuned 0-137; head direction 0-4. Without the running filter (`PLACE_RUN_ONLY=false`) 141 of 264 ROIs in sub-F14 are "spatial", which we take to be confounded by where the mouse rests; the defaults keep the conservative answer. Calcium events are sparse, so 6-8 minutes of running give little power per ROI. |
 
 Synthetic fixture (`make test`, ground truth planted): on the linear track 30 of 30 place cells
@@ -161,26 +162,30 @@ the arena, ≥ 8 of 10 2D place cells and 10 of 10 head-direction cells (preferr
 
 ## Runtime
 
-`cpu: 4096` (4 vCPU), `memory: 4096` MiB, `timeoutSeconds: 28800`, `standard`. Measured on
-2026-11-09. "Docker" rows ran the image of this version (linux/amd64 under emulation on an M-series
-Mac, read-only root, `/tmp` tmpfs) while other jobs shared the host; "native" rows ran the same code
-on arm64 with 6 threads. Rows marked *previous version* used 10 GLM shifts and at most 100 LBFGS
-iterations; the current defaults (19 shifts, up to 1000 iterations) cost more on large sessions:
+`cpu: 4096` (4 vCPU), `memory: 8192` MiB, `timeoutSeconds: 10800`, `standard`. The timeout is
+3× the slowest native run with the defaults (the six 002047 sessions, about 10 min each, about
+60 min in all); memory leaves room above Steinmetz's 4.7 GB peak. Measured on 2026-11-09/10:
+"native" rows ran on arm64 with 4-6 threads, "Docker" rows ran the image (linux/amd64 under
+emulation on an M-series Mac, read-only root, `/tmp` tmpfs) while other jobs shared the host, so
+they overstate real runtimes several-fold. Rows marked *previous version* used 10 GLM shifts and at
+most 100 LBFGS iterations, without `GLM_MAX_NEURONS`. The real numbers will come from Pennsieve runs.
 
 | Data | Where | Wall time | Peak memory |
 |---|---|---|---|
 | Grosmark `sub-Buddy` (58 units, 266 s running in a 2328 s window; GLM 2 covariates, 2572 bins, 123 fits, all converged) | Docker, `--cpus 4 --memory 6g` | 444 s (GLM 421 s) | 2.0 GB (cgroup `memory.peak`) |
 | Grosmark, as above | native | 160 s (GLM 151 s) | 1.6 GB (process RSS) |
 | Grosmark, `GLM=false` | Docker, `--cpus 4 --memory 6g` | 36 s | 0.84 GB |
-| Sosa `sub-m11_ses-04` (168 ROIs; GLM 2 covariates, 5351 bins, 123 fits stopping at 1000 iterations) | native | 12.7 min (GLM 12.5 min) | 1.1 GB (process RSS) |
+| Sosa `sub-m11_ses-04` (168 ROIs; GLM on 150, 2 covariates, 5351 bins, 118 of 123 fits stopping at 1000 iterations) | native, 4 threads | 10.5 min (GLM 10.4 min) | 1.7 GB (process RSS) |
 | IBL `sub-NR-0031_ses-caa5dddc` (186 units, 2002 s; GLM 5 covariates, 19,110 bins) | native, *previous version* | 18 min (GLM 16 min) | 1.4 GB (process RSS) |
-| Steinmetz `sub-Richards` (490 units, 2955 s; GLM 2 covariates, 29,400 bins) | native, *previous version* | 11 min | 2.8 GB (process RSS) |
-| 002047, 6 calcium sessions (42-264 ROIs, 719 s each; GLM 6 covariates, 76 features) | native, *previous version* | 46 min (GLM 6-11 min per session) | 2.8 GB (process RSS) |
+| Steinmetz `sub-Richards` (490 units, 2955 s; GLM on 150, 2 covariates, 29,400 bins, 123 fits, all converged) | native, 4 threads | 20.1 min (GLM 19.7 min) | 4.7 GB (process RSS) |
+| 002047, 6 calcium sessions (42-264 ROIs, 719 s each; GLM on ≤ 150, 6 covariates, 76 features) | native, 4 threads | 9-10.5 min per session for the first three (the run of six is about 60 min) | not yet measured with this version; 2.8 GB with the previous one |
 
-With the current defaults the Steinmetz GLM had not finished after 40 minutes (490 neurons × 29,400
-bins, up to 1000 iterations per fit), so large sessions need hours: the timeout is set to 8 h, and
-`GLM_MAX_ITER=100` (the previous behaviour; on Grosmark 2 of 116 significance calls differ) or
-`GLM=false` keep them short. The tuning statistics take seconds to a minute per session; the GLM refits dominate (each of
+An emulated Docker run of the IBL session was stopped after more than an hour (about 33 min per
+GLM covariate under emulation); Docker runs of Steinmetz were killed when the shared Docker VM (7.7 GB
+for several builders' containers) ran out of memory, so the Steinmetz and IBL figures here are
+native. `GLM_MAX_ITER=100` or `GLM=false` keep large sessions short.
+
+The tuning statistics take seconds to a minute per session; the GLM refits dominate (each of
 `N_SHUFFLES_GLM` × `GLM_FOLDS` × covariates is a full NeMoS fit; under amd64 emulation JAX is
 several times slower than on a native amd64 node). A multi-session run or a large session exceeds
 the 15-minute Lambda limit, so this is a container step; with `GLM=false` a session takes under a
