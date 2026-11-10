@@ -8,7 +8,8 @@ application:
     place fields on position (per running direction on a linear track, 2D rate maps in an arena),
     speed scores, head-direction tuning (mean resultant length), and Poisson GLMs per neuron (NeMoS,
     JAX on CPU) with raised-cosine bases and cross-validated drop-one-covariate deviance. Every
-    statistic is tested against circular-shift nulls (seeded) with Benjamini-Hochberg FDR. Writes
+    statistic is tested against circular-shift nulls (seeded); the tuning statistics with
+    Benjamini-Hochberg FDR, the GLM contributions per neuron against shifted refits. Writes
     encoding.csv (one row per neuron), tuning curves, summary.json and figures: the place-cell
     sequence (cross-validated), fraction of tuned neurons per variable and region, the strongest
     tuning curves, GLM contributions.

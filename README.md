@@ -63,7 +63,7 @@ counted and reported as a warning. Checked on Grosmark: with 100 or 300 iteratio
 stopped before NeMoS' convergence criterion, with 1000 all 123 converged (in the same wall time:
 JAX compilation dominates there), and the significance calls at 100 and 1000 iterations differed
 for 2 of 116 neuron × covariate pairs (both speed). On Sosa's deconvolved calcium the quasi-Poisson
-fits do not meet the criterion even at 1000 iterations (all 123 report it), so treat ROI GLM numbers
+fits do not meet the criterion even at 1000 iterations (118 of 123 report it), so treat ROI GLM numbers
 as approximate. Large sessions pay for the iterations: lower `GLM_MAX_ITER` or set `GLM=false`
 when time matters. p is empirical, floored at 1/(N + 1) (no fitted tail: with ~20
 refits that would be extrapolation); `glm_<c>_significant` means ΔD² > 0 and larger than every
