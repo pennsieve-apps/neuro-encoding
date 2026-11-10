@@ -41,6 +41,11 @@ def place_sequence(path: Path, sid: str, variables: list[dict], unit_word: str) 
           [v for v in variables if v["kind"] == "position"]
     if not pos:
         return None
+    if not any(v["res"]["tuned"].any() for v in pos):
+        import logging
+
+        logging.getLogger("neuro-encoding").info("%s: no significant place cells; place-sequence figure skipped", sid)
+        return None
     fig, axes = plt.subplots(len(pos), 2, figsize=(8, 2.2 + 2.6 * len(pos)), squeeze=False)
     counts = []
     for row, v in enumerate(pos):
@@ -51,9 +56,10 @@ def place_sequence(path: Path, sid: str, variables: list[dict], unit_word: str) 
         ext = [v["edges"][0], v["edges"][-1]]
         Rs = v["Rs"].T[tuned]
         R1, R2 = (h.T[tuned] for h in r["halves"])
+        halves = (_smooth(R2), _smooth(R1)) if len(tuned) else (R2, R1)
         for col, (M, sorter, title) in enumerate((
                 (Rs, Rs, "all data, sorted by peak"),
-                (_smooth(R2), _smooth(R1), "cross-validated: second half, sorted by first half"))):
+                (halves[0], halves[1], "cross-validated: second half, sorted by first half"))):
             ax = axes[row, col]
             if len(tuned) == 0:
                 ax.text(0.5, 0.5, "no significant place cells", ha="center", va="center", transform=ax.transAxes,

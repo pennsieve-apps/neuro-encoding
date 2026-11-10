@@ -26,14 +26,14 @@ application:
     - statistics
 runtime:
   cpu: 4096
-  # Measured (see README "Runtime"): Grosmark (58 units) 265 s and 1.6 GB peak in Docker (linux/amd64 under
-  # emulation, 4 CPUs); the IBL session (186 units, 5 GLM covariates) 18 min natively; most of the time is
-  # the GLM refits (JAX/XLA on the 4 CPUs). Multi-session runs and large sessions exceed 15 min, so this is
-  # a standard (container) step; it is Lambda-safe all the same.
+  # Measured (see README "Runtime"): Grosmark (58 units) 444 s and 2.0 GB peak in Docker (amd64 emulation,
+  # 4 CPUs), 160 s natively; the GLM refits dominate. Large sessions (Steinmetz, 490 units x 29,400 bins)
+  # take hours with the default GLM settings, so this is a standard (container) step with an 8 h timeout;
+  # it is Lambda-safe all the same.
   memory: 4096
   computeTypes:
     - standard
-  timeoutSeconds: 14400
+  timeoutSeconds: 28800
 parameters:
   - name: VARIABLES
     type: string
@@ -113,6 +113,15 @@ parameters:
     description: A field's peak must reach this rate (units; for ROIs only the 2x mean-rate rule applies) and twice the mean rate.
     defaultValue: 1.0
     min: 0
+  - name: FIELD_BASELINE_PCT
+    type: number
+    description: >-
+      ROI data only: the tuning curve's baseline for field detection is this percentile of it (deconvolved
+      activity does not fall to zero outside a field); fields are runs above baseline + FIELD_THRESHOLD x
+      (peak - baseline). Spike data use baseline 0.
+    defaultValue: 20
+    min: 0
+    max: 99
   - name: FIELD_MIN_BINS
     type: integer
     description: Smallest field width in bins.
@@ -135,8 +144,11 @@ parameters:
     defaultValue: true
   - name: N_SHUFFLES_GLM
     type: integer
-    description: Circular shifts of each covariate for the GLM drop-one test (each is a full refit; p from a normal fitted to these).
-    defaultValue: 10
+    description: >-
+      Circular shifts of each covariate for the GLM drop-one test (each is a full refit). Significant =
+      the contribution beats every shifted refit, i.e. empirical p = 1/(N+1) (0.05 at 19); per neuron, not
+      FDR-corrected.
+    defaultValue: 19
     min: 2
   - name: GLM_BIN_S
     type: number
@@ -170,8 +182,12 @@ parameters:
     min: 0
   - name: GLM_MAX_ITER
     type: integer
-    description: LBFGS iterations per fit.
-    defaultValue: 100
+    description: >-
+      LBFGS iterations per fit at most; fits that stop at the limit (NeMoS' convergence criterion not
+      met) are counted and reported as a warning. 1000 lets spike-count fits converge (Grosmark: all 123
+      fits; 300 was not enough); calcium (quasi-Poisson) fits often do not. Lower it to trade accuracy for
+      time on large sessions.
+    defaultValue: 1000
     min: 1
   - name: SEED
     type: integer

@@ -72,14 +72,16 @@ def folds(T: int, k: int, gap: int) -> list[tuple[np.ndarray, np.ndarray]]:
 
 
 class Fitter:
-    def __init__(self, ridge: float, maxiter: int = 100):
+    def __init__(self, ridge: float, maxiter: int = 1000):
         import nemos as nmo
 
         self.nmo = nmo
         self.ridge = ridge
         self.maxiter = maxiter
-        self.warm: dict = {}
         self.models: dict = {}
+        self.n_fits = 0
+        self.n_unconverged = 0
+        self.unconverged_keys: set = set()
 
     def model(self, width: int):
         """One model per design width, reused: a new instance (or a new data shape) makes JAX compile again,
@@ -91,29 +93,28 @@ class Fitter:
         return self.models[width]
 
     def cv_ll(self, design: np.ndarray, Y: np.ndarray, fl, key: str) -> np.ndarray:
-        """Held-out Poisson log-likelihood per neuron, summed over folds."""
+        """Held-out Poisson log-likelihood per neuron, summed over folds. Every fit starts cold from zero
+        weights and the log mean rate (a neuron silent in the training blocks gets a very low rate), so the
+        observed and the shifted fits are treated alike; fits that stop at GLM_MAX_ITER are counted."""
         tot = np.zeros(Y.shape[1])
         for i, (tr, te) in enumerate(fl):
             m = self.model(design.shape[1])
-            init = self.warm.get((key, i))
-            if init is None and key.startswith("shift:"):
-                init = self.warm.get(("full", i))   # the shifted model has the full model's shape
-            with warnings.catch_warnings():
-                # LBFGS stopping at maxiter warns; the held-out likelihood is what is reported
-                warnings.simplefilter("ignore")
-                if init is None or init[0].shape[0] != design.shape[1]:
-                    # zero weights and log mean rate (a neuron silent in the training blocks gets a very low rate)
-                    init = (np.zeros((design.shape[1], Y.shape[1])), np.log(Y[tr].mean(axis=0) + 1e-6))
+            init = (np.zeros((design.shape[1], Y.shape[1])), np.log(Y[tr].mean(axis=0) + 1e-6))
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
                 m.fit(design[tr], Y[tr], init_params=init)
-            if key in ("full", "drop") or key.startswith("drop:"):
-                self.warm[(key, i)] = (np.asarray(m.coef_), np.asarray(m.intercept_))
+            self.n_fits += 1
+            if any("converge" in str(w.message).lower() or "number of iterations" in str(w.message).lower()
+                   for w in caught):
+                self.n_unconverged += 1
+                self.unconverged_keys.add(key.split(":")[0])
             mu = np.asarray(m.predict(design[te]))
             tot += poisson_ll(Y[te], mu)
         return tot
 
 
 def run_glm(Y: np.ndarray, covs: list[Covariate], fold_k: int, gap_bins: int, ridge: float, n_shuffles: int,
-            min_shift: int, rng, log_every=None, maxiter: int = 100) -> dict:
+            min_shift: int, rng, log_every=None, maxiter: int = 1000) -> dict:
     """Cross-validated deviance explained (D^2) of the full model and Delta D^2 per covariate with shift nulls."""
     T, N = Y.shape
     fl = folds(T, fold_k, gap_bins)
@@ -125,6 +126,7 @@ def run_glm(Y: np.ndarray, covs: list[Covariate], fold_k: int, gap_bins: int, ri
     for tr, te in fl:
         ll_null += poisson_ll(Y[te], np.broadcast_to(Y[tr].mean(axis=0), Y[te].shape))
     dev_null = 2 * (ll_sat - ll_null)
+    dev_null = np.where(dev_null > 1e-9, dev_null, np.nan)   # a neuron silent in the test blocks: no D^2
     full = np.concatenate([c.columns for c in covs], axis=1)
     ll_full = F.cv_ll(full, Y, fl, "full")
     dev_full = 2 * (ll_sat - ll_full)
@@ -153,6 +155,7 @@ def run_glm(Y: np.ndarray, covs: list[Covariate], fold_k: int, gap_bins: int, ri
             log_every(f"GLM: {c.name} done ({ci + 1}/{len(covs)})")
         res["covariates"][c.name] = {"delta_d2": delta, "null": null,
                                      "bits_per_spike": (ll_full - ll_drop) / np.maximum(Y[test_idx].sum(axis=0), 1) / np.log(2)}
+    res["fits"] = {"n": F.n_fits, "stopped_at_maxiter": F.n_unconverged, "kinds": sorted(F.unconverged_keys)}
     import jax
 
     jax.clear_caches()   # compiled fits of this session are not needed again

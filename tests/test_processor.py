@@ -86,14 +86,25 @@ def test_arena(out, fixture_dir):
     assert (out / "sub-enc02_ses-arena" / "sub-enc02_ses-arena_place_maps.png").exists()
 
 
+def test_roi_place_fields(out, fixture_dir):
+    """Calcium-like activity on an offset: fields are found relative to the baseline, not the zero line."""
+    gt = json.loads((fixture_dir / "ground_truth.json").read_text())["sub-enc03_ses-vr"]
+    df = table(out, "sub-enc03_ses-vr")
+    place = list(gt["place"])
+    assert df.loc[place, "place_cell"].sum() >= 13
+    assert df.loc[gt["untuned"], "place_cell"].sum() <= 1
+    err = np.abs(df.loc[place, "position_peak"] - pd.Series(gt["place"]).loc[place])
+    assert err.median() < 25
+
+
 def test_outputs(out):
     s = json.loads((out / "summary.json").read_text())
     p = json.loads((out / "provenance.json").read_text())
     assert set(p) == {"app", "version", "variant", "tools", "parameters", "inputs", "started", "finished",
                       "wall_seconds", "peak_rss_mb", "gpu", "sessions", "citations"}
-    assert s["n_sessions"] == 2 and all((out / f["path"]).exists() and f["caption"] for f in s["figures"])
+    assert s["n_sessions"] == 3 and all((out / f["path"]).exists() and f["caption"] for f in s["figures"])
     allrows = pd.read_csv(out / "encoding.csv")
-    assert set(allrows["session_id"]) == {"sub-enc01_ses-track", "sub-enc02_ses-arena"}
+    assert set(allrows["session_id"]) == {"sub-enc01_ses-track", "sub-enc02_ses-arena", "sub-enc03_ses-vr"}
     tc = pd.read_csv(out / "sub-enc01_ses-track" / "sub-enc01_ses-track_tuning_curves.csv")
     assert {"neuron_id", "variable", "bin_centre", "rate", "occupancy_s"} <= set(tc.columns)
 
@@ -105,6 +116,16 @@ def test_flat_layout_and_determinism(fixture_dir, tmp_path):
     a = (tmp_path / "a" / "neuro-encoding" / "encoding.csv").read_text()
     b = (tmp_path / "b" / "neuro-encoding" / "encoding.csv").read_text()
     assert a == b
+
+
+def test_no_place_cells_no_crash(tmp_path):
+    """A session without place cells skips the sequence figure (it used to crash)."""
+    from processor import figures as F
+
+    v = {"kind": "position", "name": "position", "unit": "cm", "edges": np.linspace(0, 1, 5),
+         "centres": np.linspace(0.1, 0.9, 4), "Rs": np.ones((4, 3)),
+         "res": {"tuned": np.zeros(3, bool), "halves": (np.ones((4, 3)), np.ones((4, 3)))}}
+    assert F.place_sequence(tmp_path / "x.png", "s", [v], "rate") is None
 
 
 def test_bad_parameters_and_no_input(fixture_dir, tmp_path):

@@ -211,7 +211,10 @@ def analyse(s: Session, params: dict, rng, progress) -> dict:
             mean_rate = np.nansum(R * occ[:, None], axis=0) / max(occ[occ >= params["MIN_OCCUPANCY_S"]].sum(), 1e-9)
             fields = [S.place_fields(Rs[:, j], centres, mean_rate[j], params["FIELD_THRESHOLD"],
                                      params["FIELD_MIN_PEAK_HZ"] if s.neural_kind == "units" else 0.0,
-                                     params["FIELD_MIN_BINS"], params["FIELD_MAX_FRACTION"]) for j in range(N)]
+                                     params["FIELD_MIN_BINS"], params["FIELD_MAX_FRACTION"],
+                                     # spikes have a true zero; deconvolved / dF/F activity sits on an offset
+                                     params["FIELD_BASELINE_PCT"] if s.neural_kind != "units" else None)
+                      for j in range(N)]
             half = len(sel) // 2
             sp1, sp2 = S.Sparse(Xv[:half]), S.Sparse(Xv[half:])
             stab = S.split_half(sp1, sp2, fb[:half], fb[half:], K, bs, params["MIN_OCCUPANCY_S"] / 2)
@@ -264,6 +267,8 @@ def analyse(s: Session, params: dict, rng, progress) -> dict:
     if params["GLM"]:
         try:
             out["glm"] = glm_session(s, X, variables, params, rng, progress)
+            if out["glm"]:
+                warnings += out["glm"].pop("warnings", [])
         except Exception as exc:
             log.exception("%s: GLM failed: %s", s.sid, exc)
             warnings.append(f"GLM failed: {exc}")
@@ -317,14 +322,24 @@ def glm_session(s: Session, X: np.ndarray, variables: list[dict], params: dict, 
                   params["GLM_RIDGE"], params["N_SHUFFLES_GLM"], int(round(params["MIN_SHIFT_S"] / (g * s.bin_size))),
                   rng, log_every=progress, maxiter=params["GLM_MAX_ITER"])
     for c in res["covariates"].values():
-        c["p"] = S.gaussian_p_upper(c["delta_d2"], c["null"])
-        c["p_empirical"] = S.empirical_p(c["delta_d2"], c["null"])[0]
-        c["q"] = S.bh_fdr(c["p"])
-        c["significant"] = (c["q"] < params["FDR"]) & (c["delta_d2"] > 0)
+        # Empirical p against the shifted refits, floored at 1/(N+1) (no fitted tail: with ~20 refits a
+        # normal tail would be extrapolation). 'significant' = the covariate's contribution is positive and
+        # beats every shifted refit, i.e. p = 1/(N_SHUFFLES_GLM + 1) (0.05 at the default 19); this is a
+        # per-neuron test, not FDR-corrected (q is reported, but with so few refits BH can rarely reject).
+        p_emp, z = S.empirical_p(c["delta_d2"], c["null"], tail=False)
+        c["p"] = p_emp
+        c["z"] = z
+        c["q"] = S.bh_fdr(p_emp)
+        c["significant"] = (c["delta_d2"] > 0) & (p_emp <= 1.0 / (c["null"].shape[0] + 1) + 1e-12)
     res.update(bin_s=g * s.bin_size, n_bins=int(vb.sum()), covariate_names=[c.name for c in covs],
                n_features=int(sum(c.n_basis for c in covs)), seconds=round(time.monotonic() - tg, 1))
     progress(f"{s.sid}: GLM {len(covs)} covariates, {res['n_features']} features, {res['n_bins']} bins of "
-             f"{res['bin_s']:.3g} s, {len(s.ids)} neurons, {res['seconds']}s")
+             f"{res['bin_s']:.3g} s, {len(s.ids)} neurons, {res['fits']['n']} fits "
+             f"({res['fits']['stopped_at_maxiter']} stopped at GLM_MAX_ITER), {res['seconds']}s")
+    if res["fits"]["stopped_at_maxiter"]:
+        out_warn = (f"GLM: {res['fits']['stopped_at_maxiter']} of {res['fits']['n']} fits stopped at "
+                    f"GLM_MAX_ITER={params['GLM_MAX_ITER']} before converging ({', '.join(res['fits']['kinds'])})")
+        res.setdefault("warnings", []).append(out_warn)
     return res
 
 
@@ -381,6 +396,7 @@ def table(s: Session, out: dict, params: dict) -> pd.DataFrame:
         for c, v in g["covariates"].items():
             df[f"glm_{c}_delta_d2"] = v["delta_d2"]
             df[f"glm_{c}_bits_per_spike"] = v["bits_per_spike"]
+            df[f"glm_{c}_z"] = v["z"]
             df[f"glm_{c}_p"] = v["p"]
             df[f"glm_{c}_q"] = v["q"]
             df[f"glm_{c}_significant"] = v["significant"]

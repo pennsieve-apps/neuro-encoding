@@ -51,16 +51,17 @@ DEFAULTS = {
     "FIELD_MIN_PEAK_HZ": "1.0",
     "FIELD_MIN_BINS": "3",
     "FIELD_MAX_FRACTION": "0.8",
+    "FIELD_BASELINE_PCT": "20",
     "SPEED_SMOOTH_S": "0.25",
     "GLM": "true",
-    "N_SHUFFLES_GLM": "10",
+    "N_SHUFFLES_GLM": "19",
     "GLM_BIN_S": "0.1",
     "GLM_N_BASIS": "8",
     "GLM_FOLDS": "3",
     "GLM_GAP_S": "2",
     "GLM_RIDGE": "0.001",
     "GLM_MAX_KEYPOINTS": "3",
-    "GLM_MAX_ITER": "100",
+    "GLM_MAX_ITER": "1000",
     "SEED": "42",
     "THREADS": "0",
 }
@@ -92,7 +93,7 @@ def read_parameters(env=os.environ) -> dict:
                   "N_SHUFFLES_GLM", "GLM_N_BASIS", "GLM_FOLDS", "GLM_MAX_KEYPOINTS", "GLM_MAX_ITER", "SEED", "THREADS"):
             p[k] = int(raw[k])
         for k in ("MIN_SHIFT_S", "FDR", "MIN_OCCUPANCY_S", "MIN_DURATION_S", "SMOOTH_BINS", "FIELD_THRESHOLD",
-                  "FIELD_MIN_PEAK_HZ", "FIELD_MAX_FRACTION", "SPEED_SMOOTH_S", "GLM_BIN_S", "GLM_GAP_S", "GLM_RIDGE"):
+                  "FIELD_MIN_PEAK_HZ", "FIELD_MAX_FRACTION", "FIELD_BASELINE_PCT", "SPEED_SMOOTH_S", "GLM_BIN_S", "GLM_GAP_S", "GLM_RIDGE"):
             p[k] = float(raw[k])
         p["RUN_SPEED"] = None if raw["RUN_SPEED"].lower() == "auto" else float(raw["RUN_SPEED"])
     except ValueError as exc:
@@ -103,6 +104,8 @@ def read_parameters(env=os.environ) -> dict:
         raise ParameterError("N_SHUFFLES must be at least 20")
     if p["N_SHUFFLES_GLM"] < 2 and p["GLM"]:
         raise ParameterError("N_SHUFFLES_GLM must be at least 2")
+    if not 0 <= p["FIELD_BASELINE_PCT"] < 100:
+        raise ParameterError("FIELD_BASELINE_PCT must be in [0, 100)")
     if not 0 < p["FDR"] < 1 or not 0 < p["FIELD_THRESHOLD"] < 1 or not 0 < p["FIELD_MAX_FRACTION"] <= 1:
         raise ParameterError("FDR and FIELD_THRESHOLD must be in (0, 1), FIELD_MAX_FRACTION in (0, 1]")
     if min(p["POSITION_BINS"], p["POSITION_BINS_2D"], p["N_BINS"], p["ANGLE_BINS"]) < 3 or p["GLM_FOLDS"] < 2 \

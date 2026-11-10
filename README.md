@@ -39,11 +39,17 @@ variables at once and asks, per neuron, which variable the model cannot do witho
 cross-checked against our own binning), Skaggs information in bits per spike, its circular-shift
 null (`N_SHUFFLES`, minimum shift `MIN_SHIFT_S`, seeded; computed by re-binning the non-zero
 entries per shift or, when cheaper, for all shifts at once by FFT cross-correlation), one-sided
-p = (1 + #null ≥ observed)/(1 + n) with a normal tail fitted to the null beyond the last shuffle,
-z-score, Benjamini-Hochberg q across neurons. Position: 1D (per running direction on a linear track
+p = (1 + #null ≥ observed)/(1 + n); when the observed value beats every shuffle, p is the tail of a
+normal fitted to the null (never more than 1/(n + 1)), so that with 500 shuffles the FDR over
+hundreds of neurons can still reject; z-score; Benjamini-Hochberg q across neurons. Position: 1D (per running direction on a linear track
 when both directions have ≥ 20% of the running time; running bins only) or 2D (`position_2d`)
-rate maps; place fields as contiguous runs above `FIELD_THRESHOLD` × peak of the smoothed curve
-with peak ≥ `FIELD_MIN_PEAK_HZ` and ≥ 2 × mean rate, 3 bins to 80% of the track; split-half
+rate maps; place fields as contiguous runs of the smoothed curve above baseline +
+`FIELD_THRESHOLD` × (peak − baseline), 3 bins to 80% of the track, whose peak rises above the
+baseline at least twice as much as the mean rate does (and is ≥ `FIELD_MIN_PEAK_HZ` for units).
+For spikes the baseline is 0 (the classic rule: > 20% of peak, peak ≥ 2 × mean rate); for ROI
+activity it is the curve's `FIELD_BASELINE_PCT` percentile, because deconvolved activity does not
+fall to zero outside a field (on Sosa et al. it stays at 0.2-0.4 × peak along the whole track, so
+the classic rule found no field at all); split-half
 stability. Speed variables: Kropff speed score (Pearson r of the 250 ms-smoothed rate with speed),
 two-sided shift null by FFT. Angles: mean resultant length of the tuning curve and preferred
 direction, shift null. GLM: NeMoS `PopulationGLM` (Poisson, exp link, ridge `GLM_RIDGE`, LBFGS)
@@ -51,8 +57,19 @@ on counts summed into `GLM_BIN_S` bins; each covariate through `GLM_N_BASIS` rai
 functions over its 1st-99th percentile (cyclic B-splines for angles, a product of raised cosines
 for 2D position); 3 contiguous folds with a 2 s gap; cross-validated deviance explained D² of the
 full model against the training-mean model; per covariate ΔD² = (dev(without c) − dev(full)) /
-dev(mean), tested against `N_SHUFFLES_GLM` refits with only c circularly shifted (p from a normal
-fitted to that null), BH across neurons.
+dev(mean), tested against `N_SHUFFLES_GLM` refits with only c circularly shifted. Every fit starts
+from zero weights and the log mean rate (no warm starts), and fits that stop at `GLM_MAX_ITER` are
+counted and reported as a warning. Checked on Grosmark: with 100 or 300 iterations every fit
+stopped before NeMoS' convergence criterion, with 1000 all 123 converged (in the same wall time:
+JAX compilation dominates there), and the significance calls at 100 and 1000 iterations differed
+for 2 of 116 neuron × covariate pairs (both speed). On Sosa's deconvolved calcium the quasi-Poisson
+fits do not meet the criterion even at 1000 iterations (all 123 report it), so treat ROI GLM numbers
+as approximate. Large sessions pay for the iterations: lower `GLM_MAX_ITER` or set `GLM=false`
+when time matters. p is empirical, floored at 1/(N + 1) (no fitted tail: with ~20
+refits that would be extrapolation); `glm_<c>_significant` means ΔD² > 0 and larger than every
+shifted refit, i.e. p = 1/(N + 1) = 0.05 at the default N = 19. That is a per-neuron test without
+multiple-comparison correction; `glm_<c>_q` (BH) is reported but with so few refits it can rarely
+reject. The FDR-controlled statements are the tuning statistics above.
 
 ## Ports
 
@@ -77,15 +94,16 @@ fitted to that null), BH across neurons.
 | `RUN_SPEED` | `auto` | running threshold when neuro-align gave no run direction (3 cm/s) |
 | `SMOOTH_BINS` | `1.5` | smoothing of 1D curves for fields and figures (bins) |
 | `FIELD_THRESHOLD`, `FIELD_MIN_PEAK_HZ`, `FIELD_MIN_BINS`, `FIELD_MAX_FRACTION` | `0.2`, `1.0`, `3`, `0.8` | place-field criteria |
+| `FIELD_BASELINE_PCT` | `20` | ROI data: percentile of the tuning curve taken as its baseline for field detection |
 | `SPEED_SMOOTH_S` | `0.25` | rate smoothing for the speed score (s) |
 | `GLM` | `true` | fit the GLMs |
-| `N_SHUFFLES_GLM` | `10` | shifted refits per covariate for the drop-one test |
+| `N_SHUFFLES_GLM` | `19` | shifted refits per covariate for the drop-one test (significance at p = 1/(N + 1)) |
 | `GLM_BIN_S` | `0.1` | GLM bin (s) |
 | `GLM_N_BASIS` | `8` | basis functions per covariate |
 | `GLM_FOLDS` / `GLM_GAP_S` | `3` / `2` | cross-validation blocks and the gap around test blocks (s) |
 | `GLM_RIDGE` | `0.001` | ridge strength |
 | `GLM_MAX_KEYPOINTS` | `3` | at most this many keypoint speeds in the GLM |
-| `GLM_MAX_ITER` | `100` | LBFGS iterations per fit |
+| `GLM_MAX_ITER` | `1000` | LBFGS iterations per fit at most; fits stopped by it are counted in a warning |
 | `SEED` | `42` | seed of all shifts; results are reproducible |
 | `THREADS` | `0` | BLAS/XLA threads; 0 = the container's CPU quota |
 
@@ -98,11 +116,16 @@ depth, x, y, mean_rate` (from neuro-align), `epoch_mean_rate`; per variable `<v>
 `<v>_n_fields`, `<v>_field_centres`, `<v>_field_widths` (`;`-separated), `<v>_stability`, and
 `place_cell`, `place_direction` (`fwd`, `bwd`, `fwd;bwd` or `any`); speed variables
 `<v>_speed_score`, `_p`, `_q`; angles `<v>_mrl`, `_p`, `_q`, `<v>_preferred_deg`; GLM `glm_d2`
-and per covariate `glm_<c>_delta_d2`, `glm_<c>_bits_per_spike`, `glm_<c>_p`, `glm_<c>_q`,
-`glm_<c>_significant`. `<v>_tuned`: position, significant information and at least one field;
+and per covariate `glm_<c>_delta_d2`, `glm_<c>_bits_per_spike`, `glm_<c>_z` (against the shifted
+refits), `glm_<c>_p`, `glm_<c>_q`, `glm_<c>_significant` (see Method). `<v>_tuned`: position,
+significant information (BH across neurons) and at least one field;
 speed variables, significant speed score; angles, significant resultant length; others,
 significant information. `<session_id>_tuning_curves.csv`: `neuron_id, variable, bin_centre, rate,
-occupancy_s` (rate in Hz for units). Figures (listed with captions in `summary.json`):
+occupancy_s` (rate in Hz for units). `place_cell` is the OR of up to three separately
+FDR-corrected tests (`position`, and on a linear track `position_fwd` and `position_bwd`), so the
+family-wise false discovery rate of `place_cell` is up to about three times `FDR`. For ROI data
+`<v>_n_fields` is often ≥ 1 on untuned ROIs too (noise bumps above the baseline); `place_cell` also
+needs significant information. Figures (listed with captions in `summary.json`):
 
 - `<session_id>_place_sequence.png`: place cells sorted by peak position, per running direction;
   right, the cross-validated version.
@@ -113,12 +136,18 @@ occupancy_s` (rate in Hz for units). Figures (listed with captions in `summary.j
 
 ## Demo results
 
-Run on neuro-align's output of the demo data (defaults; native arm64 run, 6 threads):
+Run on neuro-align's output of the demo data with the defaults, natively (arm64, 6 threads).
+Grosmark and Sosa were run with this version; for IBL, Steinmetz and the 002047 sessions the tuning
+results below are from the previous version (the changes since — ROI field rule, GLM p-values and
+iterations — do not touch them for spike data, and the 002047 ROI tuning test is information-based)
+and their GLM results are being re-run with the new GLM settings, so they are left out here.
 
 | Session | Neurons | Result |
 |---|---|---|
-| Grosmark & Buzsáki `sub-Buddy` (linear track, neuro-align `EPOCH=run`, 57 laps, 266 s running) | 58 CA1 units (38 pyramidal, 20 interneurons) | **29 place cells, all pyramidal (29/38 = 76%)**: 15 with fields in both running directions, 10 in the runs towards lower position only, 4 towards higher only; median spatial information of place cells 1.15 bits/spike, median split-half stability 0.58; the place-cell sequence tiles the running path (about 1.9 m of the linearised 2D path, which reaches past the ends of the 1.6 m track onto the end platforms) in both directions and survives cross-validation (`_place_sequence.png`). GLM: position needed for 27 pyramidal cells and 12 interneurons, speed for 19 neurons; median deviance explained 0.11 (pyramidal), 0.015 (interneurons). |
-| IBL `sub-NR-0031_ses-caa5dddc` (whole session) | 186 good units in 13 regions | Tuned to wheel velocity: 94 (61% in the anterior pretectal nucleus, 66% in the midbrain reticular nucleus, 42% in CA1); to pupil diameter 55; to paw or nose speed (Lightning Pose) 71-80. GLM (5 covariates): wheel velocity needed for 56 units, nose speed 35, left paw 31, right paw 26, pupil 21; median deviance explained 0.057 (positive for 90% of units). |
+| Grosmark & Buzsáki `sub-Buddy` (linear track, neuro-align `EPOCH=run`, 57 laps, 266 s running) | 58 CA1 units (38 pyramidal, 20 interneurons) | **29 place cells, all pyramidal (29/38 = 76%)**: 15 with fields in both running directions, 10 in the runs towards lower position only, 4 towards higher only; median spatial information of place cells 1.15 bits/spike, median split-half stability 0.58; the place-cell sequence tiles the running path (about 1.9 m of the linearised 2D path, which reaches past the ends of the 1.6 m track onto the end platforms) in both directions and survives cross-validation (`_place_sequence.png`). GLM (all 123 fits converged): position needed (ΔD² beats all 19 shifted refits) for 29 pyramidal cells and 11 interneurons, speed for 20 neurons; median deviance explained 0.11 (pyramidal), 0.015 (interneurons). |
+| Sosa, Plitt & Giocomo `sub-m11_ses-04` (DANDI 001361; 2p CA1, virtual linear track, neuro-align `EPOCH=run`, 80 laps, 702 s) | 168 accepted ROIs (deconvolved) | Spatial information significant (BH) for 130 ROIs (median q 1.8e-5); **130 place cells (77%)** with the baseline-relative field rule (the earlier rule, relative to the peak alone, found no field in any ROI because deconvolved activity stays at 0.2-0.4 × peak along the whole track); median field width 77 cm of the 450 cm track, median split-half stability 0.33. Speed tuning in 101 ROIs (28 positive, 73 negative). GLM (quasi-Poisson on deconvolved activity; fits did not meet NeMoS' convergence criterion): position needed for 90 ROIs, speed for 48; median deviance explained 0.0007, i.e. the GLM explains little of the frame-to-frame activity. |
+| IBL `sub-NR-0031_ses-caa5dddc` (whole session) | 186 good units in 13 regions | Tuned to wheel velocity: 94 (61% in the anterior pretectal nucleus, 66% in the midbrain reticular nucleus, 42% in CA1); to pupil diameter 55; to paw or nose speed (Lightning Pose) 71-80. |
+| Steinmetz et al. `sub-Richards` (DANDI 000017, whole session) | 490 units (ORB, MOs, OLF, root) | Tuned to wheel velocity: 309; to pupil area 32. |
 | CA1 1p calcium, WT and 5xFAD, 6 sessions (DANDI 002047; DRIADA calcium events) | 42-264 accepted ROIs per session | While running (speed ≥ 3 cm/s, 380-460 s per session), few ROIs carry significant 2D spatial information: 1, 4, 1, 2, 4 and 39 of 42-264 ROIs; speed-tuned 0-137; head direction 0-4. Without the running filter (`PLACE_RUN_ONLY=false`) 141 of 264 ROIs in sub-F14 are "spatial", which we take to be confounded by where the mouse rests; the defaults keep the conservative answer. Calcium events are sparse, so 6-8 minutes of running give little power per ROI. |
 
 Synthetic fixture (`make test`, ground truth planted): on the linear track 30 of 30 place cells
@@ -126,20 +155,31 @@ found, peaks within 8 cm of the planted centres (median), one-direction cells in
 direction, 8 of 8 speed cells with a significant positive speed score, no untuned cell called a
 place cell; the GLM needs position for > 80% of place cells and speed for > 70% of speed cells. In
 the arena, ≥ 8 of 10 2D place cells and 10 of 10 head-direction cells (preferred direction within
-20°) are found.
+20°) are found. Calcium-like ROIs on a virtual track (activity on an offset outside the field):
+15 of 15 place ROIs found, at most 1 of 10 untuned ROIs called a place cell.
 
 ## Runtime
 
-`cpu: 4096` (4 vCPU), `memory: 4096` MiB, `timeoutSeconds: 14400`, `standard`. Measured:
+`cpu: 4096` (4 vCPU), `memory: 4096` MiB, `timeoutSeconds: 28800`, `standard`. Measured on
+2026-11-09. "Docker" rows ran the image of this version (linux/amd64 under emulation on an M-series
+Mac, read-only root, `/tmp` tmpfs) while other jobs shared the host; "native" rows ran the same code
+on arm64 with 6 threads. Rows marked *previous version* used 10 GLM shifts and at most 100 LBFGS
+iterations; the current defaults (19 shifts, up to 1000 iterations) cost more on large sessions:
 
 | Data | Where | Wall time | Peak memory |
 |---|---|---|---|
-| Grosmark `sub-Buddy` (58 units, 266 s running in a 2328 s window; GLM 2 covariates, 2572 bins) | Docker, linux/amd64 under emulation on an M-series Mac, `--cpus 4 --memory 6g`, read-only root | 265 s (GLM 230 s) | 1.6 GB (cgroup `memory.peak`) |
-| Same, `GLM=false` | Docker, as above | 36 s | 0.84 GB |
-| IBL `sub-NR-0031_ses-caa5dddc` (186 units, 2002 s; 5 tuning variables; GLM 5 covariates, 19,110 bins) | native arm64, 6 threads | 18 min (GLM 16 min) | 1.4 GB (process RSS) |
-| 002047, 6 calcium sessions (42-264 ROIs, 719 s each; 16 tuning variables; GLM 6 covariates, 76 features) | native arm64, 6 threads | 46 min (GLM 6-11 min per session) | 2.8 GB (process RSS) |
+| Grosmark `sub-Buddy` (58 units, 266 s running in a 2328 s window; GLM 2 covariates, 2572 bins, 123 fits, all converged) | Docker, `--cpus 4 --memory 6g` | 444 s (GLM 421 s) | 2.0 GB (cgroup `memory.peak`) |
+| Grosmark, as above | native | 160 s (GLM 151 s) | 1.6 GB (process RSS) |
+| Grosmark, `GLM=false` | Docker, `--cpus 4 --memory 6g` | 36 s | 0.84 GB |
+| Sosa `sub-m11_ses-04` (168 ROIs; GLM 2 covariates, 5351 bins, 123 fits stopping at 1000 iterations) | native | 12.7 min (GLM 12.5 min) | 1.1 GB (process RSS) |
+| IBL `sub-NR-0031_ses-caa5dddc` (186 units, 2002 s; GLM 5 covariates, 19,110 bins) | native, *previous version* | 18 min (GLM 16 min) | 1.4 GB (process RSS) |
+| Steinmetz `sub-Richards` (490 units, 2955 s; GLM 2 covariates, 29,400 bins) | native, *previous version* | 11 min | 2.8 GB (process RSS) |
+| 002047, 6 calcium sessions (42-264 ROIs, 719 s each; GLM 6 covariates, 76 features) | native, *previous version* | 46 min (GLM 6-11 min per session) | 2.8 GB (process RSS) |
 
-The tuning statistics take seconds to a minute per session; the GLM refits dominate (each of
+With the current defaults the Steinmetz GLM had not finished after 40 minutes (490 neurons × 29,400
+bins, up to 1000 iterations per fit), so large sessions need hours: the timeout is set to 8 h, and
+`GLM_MAX_ITER=100` (the previous behaviour; on Grosmark 2 of 116 significance calls differ) or
+`GLM=false` keep them short. The tuning statistics take seconds to a minute per session; the GLM refits dominate (each of
 `N_SHUFFLES_GLM` × `GLM_FOLDS` × covariates is a full NeMoS fit; under amd64 emulation JAX is
 several times slower than on a native amd64 node). A multi-session run or a large session exceeds
 the 15-minute Lambda limit, so this is a container step; with `GLM=false` a session takes under a
@@ -223,6 +263,8 @@ lists in `CITATION.cff`.
 ## Acknowledgements
 
 We thank the NeMoS and pynapple teams at the Flatiron Institute's Center for Computational
-Neuroscience and the Peyrache lab, the JAX team, and the DANDI Archive. The demo data were shared
+Neuroscience and the Peyrache lab, the JAX team, and the DANDI Archive. NeMoS is supported by the
+Center for Computational Neuroscience in the Flatiron Institute of the Simons Foundation and by the
+NIH BRAIN Initiative (1RF1MH133778), as its README asks us to acknowledge. The demo data were shared
 by Grosmark and Buzsáki, the International Brain Laboratory, and Plusnin, Pospelov and colleagues,
 under CC-BY-4.0.

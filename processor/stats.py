@@ -38,8 +38,9 @@ def shifts(n: int, n_shuffles: int, min_shift: int, rng) -> np.ndarray:
     return rng.integers(lo, hi, size=n_shuffles)
 
 
-def empirical_p(obs: np.ndarray, null: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """One-sided p = (1 + #null >= obs) / (1 + n) per neuron, and the z-score of obs against the null."""
+def empirical_p(obs: np.ndarray, null: np.ndarray, tail: bool = True) -> tuple[np.ndarray, np.ndarray]:
+    """One-sided p = (1 + #null >= obs) / (1 + n) per neuron, and the z-score of obs against the null.
+    tail=True: beyond every shuffle, a normal tail (see below); tail=False: the empirical floor 1/(n+1)."""
     n = null.shape[0]
     ge = (null >= obs[None, :] - 1e-12).sum(axis=0)
     p = (1 + ge) / (1 + n)
@@ -47,7 +48,7 @@ def empirical_p(obs: np.ndarray, null: np.ndarray) -> tuple[np.ndarray, np.ndarr
     z = np.where(sd > 0, (obs - null.mean(axis=0)) / np.where(sd > 0, sd, 1), np.nan)
     # Beyond every shuffle the empirical p is only bounded by 1/(n+1); there a normal fitted to the null gives the
     # tail probability (never more than 1/(n+1)), so FDR over hundreds of neurons stays possible with 500 shuffles.
-    beyond = (ge == 0) & np.isfinite(z)
+    beyond = (ge == 0) & np.isfinite(z) & tail
     p[beyond] = np.minimum(1.0 / (1 + n), norm.sf(z[beyond]))
     p[~np.isfinite(obs)] = np.nan
     return p, z
@@ -204,14 +205,24 @@ def nan_smooth(y: np.ndarray, sigma: float, circular: bool = False) -> np.ndarra
 
 
 def place_fields(curve: np.ndarray, centres: np.ndarray, mean_rate: float, threshold: float, min_peak: float,
-                 min_bins: int, max_fraction: float) -> list[dict]:
-    """Contiguous runs of a (smoothed) 1D tuning curve above threshold x its peak, each with a peak at least
-    min_peak and twice the mean rate, at least min_bins wide and at most max_fraction of the track."""
+                 min_bins: int, max_fraction: float, baseline_pct: float | None = 20.0) -> list[dict]:
+    """Contiguous runs of a (smoothed) 1D tuning curve above baseline + threshold x (peak - baseline), the
+    baseline being the curve's baseline_pct percentile. Each field's peak must reach min_peak, and rise above
+    the baseline at least twice as much as the mean rate does (for spikes, baseline ~0: peak >= 2 x mean);
+    it must be at least min_bins wide and at most max_fraction of the track.
+
+    The baseline matters for calcium data: deconvolved activity rarely falls to zero outside a field (Sosa
+    et al.: 0.2-0.4 x peak along the whole track), so a threshold relative to the peak alone marks the whole
+    track. baseline_pct=None (spike data, which has a true zero) uses baseline 0: the usual fraction of the
+    peak and peak >= 2 x mean rate."""
     c = np.nan_to_num(curve, nan=0.0)
     peak = c.max()
     if not np.isfinite(peak) or peak <= 0:
         return []
-    above = c >= threshold * peak
+    fin = curve[np.isfinite(curve)]
+    base = float(np.percentile(fin, baseline_pct)) if (len(fin) and baseline_pct is not None) else 0.0
+    base = min(max(base, 0.0), peak)
+    above = c >= base + threshold * (peak - base)
     fields = []
     i, K = 0, len(c)
     width = centres[1] - centres[0] if K > 1 else 1.0
@@ -225,7 +236,7 @@ def place_fields(curve: np.ndarray, centres: np.ndarray, mean_rate: float, thres
         seg = slice(i, j)
         pk = c[seg].max()
         n = j - i
-        if pk >= max(min_peak, 2 * mean_rate) and n >= min_bins and n <= max_fraction * K:
+        if pk >= min_peak and pk - base >= 2 * (mean_rate - base) and n >= min_bins and n <= max_fraction * K:
             k = i + int(np.argmax(c[seg]))
             fields.append({"centre": float(centres[k]), "width": float(n * width), "peak_rate": float(pk),
                            "start": float(centres[i] - width / 2), "end": float(centres[j - 1] + width / 2)})
