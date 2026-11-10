@@ -1,0 +1,249 @@
+# yaml-language-server: $schema=https://schemas.pennsieve.io/app-manifest/v1.json
+schemaVersion: "1.0"
+application:
+  name: Single-Neuron Encoding
+  description: >-
+    What does each neuron encode? From neuro-align's aligned activity and behaviour: occupancy-
+    normalised tuning curves to every behaviour variable (pynapple), Skaggs spatial information and
+    place fields on position (per running direction on a linear track, 2D rate maps in an arena),
+    speed scores, head-direction tuning (mean resultant length), and Poisson GLMs per neuron (NeMoS,
+    JAX on CPU) with raised-cosine bases and cross-validated drop-one-covariate deviance. Every
+    statistic is tested against circular-shift nulls (seeded); the tuning statistics with
+    Benjamini-Hochberg FDR, the GLM contributions per neuron against shifted refits. Writes
+    encoding.csv (one row per neuron), tuning curves, summary.json and figures: the place-cell
+    sequence (cross-validated), fraction of tuned neurons per variable and region, the strongest
+    tuning curves, GLM contributions.
+  type: processor
+  tags:
+    - neuroscience
+    - neural-decoding
+    - electrophysiology
+    - calcium-imaging
+    - behavior
+    - nwb
+    - place-cells
+    - tuning-curves
+    - glm
+    - statistics
+runtime:
+  cpu: 4096
+  # From native (arm64, 4-6 threads) measurements with the defaults (see README "Runtime"): Grosmark 2.5 min,
+  # Sosa 10.5 min, Steinmetz (490 units, GLM on 150) 20 min and 4.7 GB peak, the six 002047 sessions about
+  # 10 min each (about 60 min for the run). timeoutSeconds is 3x the slowest run (60 min); memory leaves
+  # room above Steinmetz's 4.7 GB. A standard (container) step; Lambda-safe all the same.
+  memory: 8192
+  computeTypes:
+    - standard
+  timeoutSeconds: 10800
+parameters:
+  - name: VARIABLES
+    type: string
+    description: "'auto' (every behaviour variable neuro-align wrote, except wheel position, licks and run direction) or a comma-separated list of names (position_2d = x and y together)."
+    defaultValue: auto
+  - name: N_SHUFFLES
+    type: integer
+    description: Circular shifts for the tuning statistics (information, speed score, resultant length).
+    defaultValue: 500
+    min: 20
+  - name: MIN_SHIFT_S
+    type: number
+    description: Smallest circular shift of behaviour against activity (s).
+    defaultValue: 20
+    min: 0
+  - name: FDR
+    type: number
+    description: Benjamini-Hochberg false discovery rate across the neurons of a session, per statistic.
+    defaultValue: 0.05
+    min: 0
+    max: 1
+  - name: POSITION_BINS
+    type: integer
+    description: Bins along 1D position (between its 0.5th and 99.5th percentile).
+    defaultValue: 40
+    min: 3
+  - name: POSITION_BINS_2D
+    type: integer
+    description: Bins per side of 2D rate maps.
+    defaultValue: 20
+    min: 3
+  - name: N_BINS
+    type: integer
+    description: Bins of the other variables (between their 1st and 99th percentile).
+    defaultValue: 12
+    min: 3
+  - name: ANGLE_BINS
+    type: integer
+    description: Bins of angles (head direction) over 360 degrees.
+    defaultValue: 36
+    min: 3
+  - name: MIN_OCCUPANCY_S
+    type: number
+    description: Feature bins visited for less than this (s) are left out of tuning curves and statistics.
+    defaultValue: 0.2
+    min: 0
+  - name: MIN_DURATION_S
+    type: number
+    description: A variable with less than this much data (s) in the epoch is not analysed.
+    defaultValue: 60
+    min: 0
+  - name: PLACE_RUN_ONLY
+    type: boolean
+    description: Position tuning only while running (neuro-align's run_direction != 0, else speed >= RUN_SPEED).
+    defaultValue: true
+  - name: SPLIT_DIRECTION
+    type: boolean
+    description: On a linear track, also analyse each running direction separately (position_fwd, position_bwd) when each has at least 20% of the running time.
+    defaultValue: true
+  - name: RUN_SPEED
+    type: string
+    description: "Running threshold when there is no run_direction; 'auto' = 3 cm/s in the speed's unit."
+    defaultValue: auto
+  - name: SMOOTH_BINS
+    type: number
+    description: Gaussian smoothing (in position bins) of 1D tuning curves before place-field detection and figures.
+    defaultValue: 1.5
+    min: 0
+  - name: FIELD_THRESHOLD
+    type: number
+    description: A place field is a run of bins above this fraction of the peak rate.
+    defaultValue: 0.2
+    min: 0
+    max: 1
+  - name: FIELD_MIN_PEAK_HZ
+    type: number
+    description: A field's peak must reach this rate (units; for ROIs only the 2x mean-rate rule applies) and twice the mean rate.
+    defaultValue: 1.0
+    min: 0
+  - name: FIELD_BASELINE_PCT
+    type: number
+    description: >-
+      ROI data only: the tuning curve's baseline for field detection is this percentile of it (deconvolved
+      activity does not fall to zero outside a field); fields are runs above baseline + FIELD_THRESHOLD x
+      (peak - baseline). Spike data use baseline 0.
+    defaultValue: 20
+    min: 0
+    max: 99
+  - name: MIN_STABILITY
+    type: number
+    description: >-
+      ROI data only: a place cell must also have a split-half stability (correlation of the tuning curves of
+      the first and second half of the session) of at least this. For calcium activity the field rule finds a
+      bump in almost every ROI, so stability is what separates place cells from ROIs that are merely
+      spatially informative. Spike data use information and the field rule only.
+    defaultValue: 0.5
+    min: -1
+    max: 1
+  - name: FIELD_MIN_BINS
+    type: integer
+    description: Smallest field width in bins.
+    defaultValue: 3
+    min: 1
+  - name: FIELD_MAX_FRACTION
+    type: number
+    description: Largest field width as a fraction of the track.
+    defaultValue: 0.8
+    min: 0
+    max: 1
+  - name: SPEED_SMOOTH_S
+    type: number
+    description: Gaussian smoothing (s) of activity before the speed score (Pearson r with speed).
+    defaultValue: 0.25
+    min: 0
+  - name: GLM
+    type: boolean
+    description: Fit the NeMoS Poisson GLMs (the slow part).
+    defaultValue: true
+  - name: N_SHUFFLES_GLM
+    type: integer
+    description: >-
+      Circular shifts of each covariate for the GLM drop-one test (each is a full refit). Significant =
+      the contribution beats every shifted refit, i.e. empirical p = 1/(N+1) (0.05 at 19); per neuron, not
+      FDR-corrected.
+    defaultValue: 19
+    min: 2
+  - name: GLM_BIN_S
+    type: number
+    description: GLM bin width (s); spike counts are summed into it.
+    defaultValue: 0.1
+    min: 0
+  - name: GLM_N_BASIS
+    type: integer
+    description: Basis functions per covariate (raised cosines; cyclic B-splines for angles; a product basis for 2D position).
+    defaultValue: 8
+    min: 3
+  - name: GLM_FOLDS
+    type: integer
+    description: Contiguous time blocks for cross-validation.
+    defaultValue: 3
+    min: 2
+  - name: GLM_GAP_S
+    type: number
+    description: Time left out between training and test blocks (s).
+    defaultValue: 2
+    min: 0
+  - name: GLM_RIDGE
+    type: number
+    description: Ridge penalty strength.
+    defaultValue: 0.001
+    min: 0
+  - name: GLM_MAX_KEYPOINTS
+    type: integer
+    description: At most this many pose keypoint speeds enter the GLM (they are highly correlated).
+    defaultValue: 3
+    min: 0
+  - name: GLM_MAX_ITER
+    type: integer
+    description: >-
+      LBFGS iterations per fit at most; fits that stop at the limit (NeMoS' convergence criterion not
+      met) are counted and reported as a warning. 1000 lets spike-count fits converge (Grosmark: all 123
+      fits; 300 was not enough); calcium (quasi-Poisson) fits often do not. Lower it to trade accuracy for
+      time on large sessions.
+    defaultValue: 1000
+    min: 1
+  - name: GLM_MAX_NEURONS
+    type: integer
+    description: >-
+      The GLM is fitted on at most this many neurons, the most active ones in the GLM bins (its cost grows
+      with the number of neurons); the others get empty GLM columns and are listed in summary.json. Tuning and
+      information statistics cover every neuron. 0 = all.
+    defaultValue: 150
+    min: 0
+  - name: SEED
+    type: integer
+    description: Seed of the circular shifts (numpy); results are reproducible.
+    defaultValue: 42
+  - name: THREADS
+    type: integer
+    description: Threads for BLAS and XLA; 0 = from the container's CPU quota.
+    defaultValue: 0
+    min: 0
+inputs:
+  - name: aligned
+    description: >-
+      neuro-align's output (neuro-align/<session_id>/aligned.npz and manifest.json are read; its other
+      files are accepted and ignored). The media types are those neuro-align's `aligned` output declares.
+    mediaTypes:
+      - application/octet-stream
+      - application/vnd.apache.parquet
+      - application/json
+      - text/csv
+      - image/png
+    placement: subfolder
+    required: true
+outputs:
+  - name: encoding
+    description: >-
+      neuro-encoding/<session_id>/<session_id>_encoding.csv (one row per neuron: information, z and
+      p/q per variable, place fields and stability, speed scores, head-direction tuning, GLM deviance
+      explained and drop-one contributions), <session_id>_tuning_curves.csv, figures, summary.json;
+      neuro-encoding/encoding.csv (all sessions), summary.json, provenance.json.
+    mediaTypes:
+      - text/csv
+      - application/json
+      - image/png
+
+review:
+  version: 1
+  generate:
+    command: python -m tests.make_fixture "$REVIEW_INPUT_DIR" --layout both
+    root: linked
