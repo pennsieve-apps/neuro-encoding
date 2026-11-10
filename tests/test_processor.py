@@ -95,6 +95,13 @@ def test_roi_place_fields(out, fixture_dir):
     assert df.loc[gt["untuned"], "place_cell"].sum() <= 1
     err = np.abs(df.loc[place, "position_peak"] - pd.Series(gt["place"]).loc[place])
     assert err.median() < 25
+    # ROI place cells need split-half stability as well as information; informative ROIs reported apart
+    assert (df.loc[df["place_cell"], "position_stability"] >= 0.5).all()
+    assert df["position_informative"].sum() >= df["place_cell"].sum()
+    h = json.loads((out / "summary.json").read_text())["sessions"]["sub-enc03_ses-vr"]
+    assert h["variables"]["position"]["n_spatially_informative"] >= 13
+    assert 0 <= h["glm"]["converged_fraction"] <= 1 and isinstance(h["glm"]["approximate"], bool)
+    assert not any(c.startswith("glm_") and c.endswith("_q") for c in df.columns)
 
 
 def test_outputs(out):

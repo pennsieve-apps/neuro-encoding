@@ -123,6 +123,16 @@ parameters:
     defaultValue: 20
     min: 0
     max: 99
+  - name: MIN_STABILITY
+    type: number
+    description: >-
+      ROI data only: a place cell must also have a split-half stability (correlation of the tuning curves of
+      the first and second half of the session) of at least this. For calcium activity the field rule finds a
+      bump in almost every ROI, so stability is what separates place cells from ROIs that are merely
+      spatially informative. Spike data use information and the field rule only.
+    defaultValue: 0.5
+    min: -1
+    max: 1
   - name: FIELD_MIN_BINS
     type: integer
     description: Smallest field width in bins.

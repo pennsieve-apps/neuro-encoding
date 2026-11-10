@@ -49,8 +49,10 @@ baseline at least twice as much as the mean rate does (and is ≥ `FIELD_MIN_PEA
 For spikes the baseline is 0 (the classic rule: > 20% of peak, peak ≥ 2 × mean rate); for ROI
 activity it is the curve's `FIELD_BASELINE_PCT` percentile, because deconvolved activity does not
 fall to zero outside a field (on Sosa et al. it stays at 0.2-0.4 × peak along the whole track, so
-the classic rule found no field at all); split-half
-stability. Speed variables: Kropff speed score (Pearson r of the 250 ms-smoothed rate with speed),
+the classic rule found no field at all); split-half stability (r between the tuning curves of the
+first and second half). Place cell: significant spatial information and a field; for ROI data also
+split-half stability ≥ `MIN_STABILITY`, because there the field rule finds a bump in almost every
+ROI. Speed variables: Kropff speed score (Pearson r of the 250 ms-smoothed rate with speed),
 two-sided shift null by FFT. Angles: mean resultant length of the tuning curve and preferred
 direction, shift null. GLM: NeMoS `PopulationGLM` (Poisson, exp link, ridge `GLM_RIDGE`, LBFGS)
 on counts summed into `GLM_BIN_S` bins; each covariate through `GLM_N_BASIS` raised-cosine basis
@@ -68,8 +70,10 @@ as approximate. Large sessions pay for the iterations: lower `GLM_MAX_ITER` or s
 when time matters. p is empirical, floored at 1/(N + 1) (no fitted tail: with ~20
 refits that would be extrapolation); `glm_<c>_significant` means ΔD² > 0 and larger than every
 shifted refit, i.e. p = 1/(N + 1) = 0.05 at the default N = 19. That is a per-neuron test without
-multiple-comparison correction; `glm_<c>_q` (BH) is reported but with so few refits it can rarely
-reject. The FDR-controlled statements are the tuning statistics above.
+multiple-comparison correction, and no q is given (with 19 refits p cannot go below 0.05, so BH
+could not reject anything). The FDR-controlled statements are the tuning statistics above. When
+fewer than 90% of a session's fits converge, `summary.json` marks its GLM `approximate` (with
+`converged_fraction`) and a warning says so.
 
 ## Ports
 
@@ -95,6 +99,7 @@ reject. The FDR-controlled statements are the tuning statistics above.
 | `SMOOTH_BINS` | `1.5` | smoothing of 1D curves for fields and figures (bins) |
 | `FIELD_THRESHOLD`, `FIELD_MIN_PEAK_HZ`, `FIELD_MIN_BINS`, `FIELD_MAX_FRACTION` | `0.2`, `1.0`, `3`, `0.8` | place-field criteria |
 | `FIELD_BASELINE_PCT` | `20` | ROI data: percentile of the tuning curve taken as its baseline for field detection |
+| `MIN_STABILITY` | `0.5` | ROI data: a place cell also needs split-half stability (r between the halves' tuning curves) ≥ this |
 | `SPEED_SMOOTH_S` | `0.25` | rate smoothing for the speed score (s) |
 | `GLM` | `true` | fit the GLMs |
 | `N_SHUFFLES_GLM` | `19` | shifted refits per covariate for the drop-one test (significance at p = 1/(N + 1)) |
@@ -118,15 +123,22 @@ depth, x, y, mean_rate` (from neuro-align), `epoch_mean_rate`; per variable `<v>
 `place_cell`, `place_direction` (`fwd`, `bwd`, `fwd;bwd` or `any`); speed variables
 `<v>_speed_score`, `_p`, `_q`; angles `<v>_mrl`, `_p`, `_q`, `<v>_preferred_deg`; GLM `glm_d2`
 and per covariate `glm_<c>_delta_d2`, `glm_<c>_bits_per_spike`, `glm_<c>_z` (against the shifted
-refits), `glm_<c>_p`, `glm_<c>_q`, `glm_<c>_significant` (see Method). `<v>_tuned`: position,
-significant information (BH across neurons) and at least one field;
+refits), `glm_<c>_p`, `glm_<c>_significant` (see Method). Position variables also have
+`<v>_informative` (significant spatial information, BH across neurons). `<v>_tuned`: position,
+significant information and at least one field, and for ROI data also split-half stability ≥
+`MIN_STABILITY`;
 speed variables, significant speed score; angles, significant resultant length; others,
 significant information. `<session_id>_tuning_curves.csv`: `neuron_id, variable, bin_centre, rate,
 occupancy_s` (rate in Hz for units). `place_cell` is the OR of up to three separately
 FDR-corrected tests (`position`, and on a linear track `position_fwd` and `position_bwd`), so the
 family-wise false discovery rate of `place_cell` is up to about three times `FDR`. For ROI data
-`<v>_n_fields` is often ≥ 1 on untuned ROIs too (noise bumps above the baseline); `place_cell` also
-needs significant information. Figures (listed with captions in `summary.json`):
+`<v>_n_fields` is ≥ 1 on almost every ROI (168 of 168 on Sosa, 10 of 10 untuned fixture ROIs:
+noise bumps above the baseline), so the field rule does not separate place cells there; an ROI is
+a place cell when its spatial information is significant and its tuning curves of the first and
+second half of the session correlate at ≥ `MIN_STABILITY` (default 0.5: on the fixture the planted
+place ROIs reach ≥ 0.97 and untuned ROIs ≤ 0.22; on Sosa the ROIs without significant information
+have a median of 0.05). `summary.json` gives both counts (`n_spatially_informative` and
+`n_tuned`). Figures (listed with captions in `summary.json`):
 
 - `<session_id>_place_sequence.png`: place cells sorted by peak position, per running direction;
   right, the cross-validated version.
@@ -147,7 +159,7 @@ settings are not in yet, so they are left out here.
 | Session | Neurons | Result |
 |---|---|---|
 | Grosmark & Buzsáki `sub-Buddy` (linear track, neuro-align 0.1.1 `EPOCH=run`, 57 laps, 267 s running) | 58 CA1 units (38 pyramidal, 20 interneurons) | **29 place cells, all pyramidal (29/38 = 76%)**: 15 with fields in both running directions, 10 in the runs towards lower position only, 4 towards higher only; median spatial information of place cells 1.15 bits/spike, median split-half stability 0.58; the place-cell sequence tiles the track in both directions and survives cross-validation (`_place_sequence.png`). Position is in the authors' track coordinate (neuro-align maps its linearisation onto it): the analysed running range is −0.13 to 1.83 m, i.e. the 1.6 m track plus the edges of the end platforms, and place-cell peaks lie between −0.13 and 1.82 m. GLM (all 123 fits converged): position needed (ΔD² beats all 19 shifted refits) for 28 pyramidal cells and 11 interneurons, speed for 19 neurons; median deviance explained 0.11 (pyramidal), 0.016 (interneurons). |
-| Sosa, Plitt & Giocomo `sub-m11_ses-04` (DANDI 001361; 2p CA1, virtual linear track, neuro-align `EPOCH=run`, 80 laps, 702 s) | 168 accepted ROIs (deconvolved) | Spatial information significant (BH) for 130 ROIs (median q 1.8e-5); **130 place cells (77%)** with the baseline-relative field rule (the earlier rule, relative to the peak alone, found no field in any ROI because deconvolved activity stays at 0.2-0.4 × peak along the whole track); median field width 77 cm of the 450 cm track, median split-half stability 0.33. Speed tuning in 101 ROIs (28 positive, 73 negative). GLM on the 150 most active ROIs (`GLM_MAX_NEURONS`; 18 skipped and listed in summary.json); quasi-Poisson on deconvolved activity, 118 of 123 fits did not meet NeMoS' convergence criterion: position needed for 78 ROIs, speed for 46; median deviance explained 0.0006, i.e. the GLM explains little of the frame-to-frame activity. |
+| Sosa, Plitt & Giocomo `sub-m11_ses-04` (DANDI 001361; 2p CA1, virtual linear track, neuro-align `EPOCH=run`, 80 laps, 702 s) | 168 accepted ROIs (deconvolved) | **130 spatially informative ROIs** (significant spatial information, BH; median q 1.8e-5) and **36 place cells (21%)**, the informative ROIs whose tuning is stable across the two halves of the session (split-half r ≥ 0.5; median 0.67; median field width 77 cm of the 450 cm track; 10 of the 36 peak in the first 50 cm). Field detection is relative to the curve's baseline, because deconvolved activity stays at 0.2-0.4 × peak along the whole track; for ROIs it finds a bump almost everywhere (168/168), so stability makes the call. Speed tuning in 101 ROIs (28 positive, 73 negative). The GLM fits (150 most active ROIs, quasi-Poisson) mostly did not converge (118 of 123), so their numbers are approximate and not reported here (they are in the table, marked in summary.json). |
 | IBL `sub-NR-0031_ses-caa5dddc` (whole session) | 186 good units in 13 regions | Tuned to wheel velocity: 94 (61% in the anterior pretectal nucleus, 66% in the midbrain reticular nucleus, 42% in CA1); to pupil diameter 55; to paw or nose speed (Lightning Pose) 71-80. |
 | Steinmetz et al. `sub-Richards` (DANDI 000017, whole session) | 490 units (ORB 257, root 134, MOs 92, OLF 7) | Tuned to wheel velocity: 309 (74% of MOs, 63% of ORB units); to pupil area 32. GLM on the 150 most active units (340 skipped, listed in summary.json; all 123 fits converged): wheel velocity needed for 54, pupil for 17; median cross-validated deviance explained −0.015, i.e. for the typical unit wheel and pupil predict held-out blocks no better than its mean rate (slow drift across the 50-minute session dominates). |
 | CA1 1p calcium, WT and 5xFAD, 6 sessions (DANDI 002047; DRIADA calcium events) | 42-264 accepted ROIs per session | While running (speed ≥ 3 cm/s, 380-460 s per session), few ROIs carry significant 2D spatial information: 1, 4, 1, 2, 4 and 39 of 42-264 ROIs; speed-tuned 0-137; head direction 0-4. Without the running filter (`PLACE_RUN_ONLY=false`) 141 of 264 ROIs in sub-F14 are "spatial", which we take to be confounded by where the mouse rests; the defaults keep the conservative answer. Calcium events are sparse, so 6-8 minutes of running give little power per ROI. |

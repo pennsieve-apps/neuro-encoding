@@ -52,6 +52,7 @@ DEFAULTS = {
     "FIELD_MIN_BINS": "3",
     "FIELD_MAX_FRACTION": "0.8",
     "FIELD_BASELINE_PCT": "20",
+    "MIN_STABILITY": "0.5",
     "SPEED_SMOOTH_S": "0.25",
     "GLM": "true",
     "N_SHUFFLES_GLM": "19",
@@ -94,7 +95,7 @@ def read_parameters(env=os.environ) -> dict:
                   "N_SHUFFLES_GLM", "GLM_N_BASIS", "GLM_FOLDS", "GLM_MAX_KEYPOINTS", "GLM_MAX_ITER", "GLM_MAX_NEURONS", "SEED", "THREADS"):
             p[k] = int(raw[k])
         for k in ("MIN_SHIFT_S", "FDR", "MIN_OCCUPANCY_S", "MIN_DURATION_S", "SMOOTH_BINS", "FIELD_THRESHOLD",
-                  "FIELD_MIN_PEAK_HZ", "FIELD_MAX_FRACTION", "FIELD_BASELINE_PCT", "SPEED_SMOOTH_S", "GLM_BIN_S", "GLM_GAP_S", "GLM_RIDGE"):
+                  "FIELD_MIN_PEAK_HZ", "FIELD_MAX_FRACTION", "FIELD_BASELINE_PCT", "MIN_STABILITY", "SPEED_SMOOTH_S", "GLM_BIN_S", "GLM_GAP_S", "GLM_RIDGE"):
             p[k] = float(raw[k])
         p["RUN_SPEED"] = None if raw["RUN_SPEED"].lower() == "auto" else float(raw["RUN_SPEED"])
     except ValueError as exc:
@@ -105,6 +106,8 @@ def read_parameters(env=os.environ) -> dict:
         raise ParameterError("N_SHUFFLES must be at least 20")
     if p["N_SHUFFLES_GLM"] < 2 and p["GLM"]:
         raise ParameterError("N_SHUFFLES_GLM must be at least 2")
+    if not -1 <= p["MIN_STABILITY"] <= 1:
+        raise ParameterError("MIN_STABILITY must be in [-1, 1]")
     if not 0 <= p["FIELD_BASELINE_PCT"] < 100:
         raise ParameterError("FIELD_BASELINE_PCT must be in [0, 100)")
     if not 0 < p["FDR"] < 1 or not 0 < p["FIELD_THRESHOLD"] < 1 or not 0 < p["FIELD_MAX_FRACTION"] <= 1:
@@ -284,6 +287,7 @@ def headline(s, out: dict, df, params) -> dict:
              "fraction_tuned": round(float(r["tuned"].mean()), 4),
              "median_info_bits": float(np.nanmedian(r["info"]))}
         if v["kind"] == "position":
+            e["n_spatially_informative"] = int(r["informative"].sum())
             e["median_info_tuned_bits"] = float(np.nanmedian(r["info"][r["tuned"]])) if r["tuned"].any() else None
             e["median_stability_tuned"] = float(np.nanmedian(r["stability"][r["tuned"]])) if r["tuned"].any() else None
         if "score" in r:
@@ -295,6 +299,7 @@ def headline(s, out: dict, df, params) -> dict:
     if g and "d2" in g:
         h["glm"] = {"median_d2": float(np.nanmedian(g["d2"])), "bin_s": g["bin_s"], "n_features": g["n_features"],
                     "n_fitted": g["n_fitted"], "skipped_neurons": g["skipped_neurons"],
+                    "converged_fraction": g["converged_fraction"], "approximate": g["approximate"],
                     "fits": g.get("fits"),
                     "n_significant": {c: int(v["significant"].sum()) for c, v in g["covariates"].items()}}
     elif g:

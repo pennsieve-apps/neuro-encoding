@@ -255,7 +255,13 @@ def analyse(s: Session, params: dict, rng, progress) -> dict:
         fdr = params["FDR"]
         if var["kind"] == "position":
             nf = np.array([len(f) for f in r["fields"]])
-            r["tuned"] = (r["info_q"] < fdr) & (nf > 0)
+            r["informative"] = r["info_q"] < fdr
+            r["tuned"] = r["informative"] & (nf > 0)
+            if s.neural_kind != "units":
+                # For ROI activity the field rule finds a bump above baseline in almost every ROI, so it does
+                # not separate place cells; require a field that is there in both halves of the session.
+                with np.errstate(invalid="ignore"):
+                    r["tuned"] &= np.nan_to_num(r["stability"], nan=-1.0) >= params["MIN_STABILITY"]
         elif var["kind"] == "angle":
             r["tuned"] = r["mrl_q"] < fdr
         elif var["kind"] in SPEED_LIKE:
@@ -333,11 +339,10 @@ def glm_session(s: Session, X: np.ndarray, variables: list[dict], params: dict, 
         # Empirical p against the shifted refits, floored at 1/(N+1) (no fitted tail: with ~20 refits a
         # normal tail would be extrapolation). 'significant' = the covariate's contribution is positive and
         # beats every shifted refit, i.e. p = 1/(N_SHUFFLES_GLM + 1) (0.05 at the default 19); this is a
-        # per-neuron test, not FDR-corrected (q is reported, but with so few refits BH can rarely reject).
+        # per-neuron test, not FDR-corrected (with ~20 refits BH could not reject anything, so no q is given).
         p_emp, z = S.empirical_p(c["delta_d2"], c["null"], tail=False)
         c["p"] = p_emp
         c["z"] = z
-        c["q"] = S.bh_fdr(p_emp)
         c["significant"] = (c["delta_d2"] > 0) & (p_emp <= 1.0 / (c["null"].shape[0] + 1) + 1e-12)
     if len(skipped):
         # back to one entry per neuron, NaN / False for the neurons not fitted
@@ -349,7 +354,7 @@ def glm_session(s: Session, X: np.ndarray, variables: list[dict], params: dict, 
         for k in ("d2", "ll_full", "ll_null"):
             res[k] = full(res[k])
         for c in res["covariates"].values():
-            for k in ("delta_d2", "bits_per_spike", "p", "z", "q"):
+            for k in ("delta_d2", "bits_per_spike", "p", "z"):
                 c[k] = full(c[k])
             c["significant"] = full(c["significant"], False)
             nl = np.full((c["null"].shape[0], N), np.nan)
@@ -365,6 +370,11 @@ def glm_session(s: Session, X: np.ndarray, variables: list[dict], params: dict, 
     progress(f"{s.sid}: GLM {len(covs)} covariates, {res['n_features']} features, {res['n_bins']} bins of "
              f"{res['bin_s']:.3g} s, {res['n_fitted']} of {len(s.ids)} neurons, {res['fits']['n']} fits "
              f"({res['fits']['stopped_at_maxiter']} stopped at GLM_MAX_ITER), {res['seconds']}s")
+    res["converged_fraction"] = round(1 - res["fits"]["stopped_at_maxiter"] / max(res["fits"]["n"], 1), 4)
+    res["approximate"] = res["converged_fraction"] < 0.9
+    if res["approximate"]:
+        res.setdefault("warnings", []).append(
+            f"GLM results are approximate: only {100 * res['converged_fraction']:.0f}% of the fits converged")
     if res["fits"]["stopped_at_maxiter"]:
         out_warn = (f"GLM: {res['fits']['stopped_at_maxiter']} of {res['fits']['n']} fits stopped at "
                     f"GLM_MAX_ITER={params['GLM_MAX_ITER']} before converging ({', '.join(res['fits']['kinds'])})")
@@ -410,6 +420,7 @@ def table(s: Session, out: dict, params: dict) -> pd.DataFrame:
             df[f"{n}_field_centres"] = [";".join(f"{x['centre']:.4g}" for x in f) for f in r["fields"]]
             df[f"{n}_field_widths"] = [";".join(f"{x['width']:.4g}" for x in f) for f in r["fields"]]
             df[f"{n}_stability"] = r["stability"]
+            df[f"{n}_informative"] = r["informative"]
             place_any |= r["tuned"]
             if n.endswith(("_fwd", "_bwd")):
                 for j in np.flatnonzero(r["tuned"]):
@@ -427,6 +438,5 @@ def table(s: Session, out: dict, params: dict) -> pd.DataFrame:
             df[f"glm_{c}_bits_per_spike"] = v["bits_per_spike"]
             df[f"glm_{c}_z"] = v["z"]
             df[f"glm_{c}_p"] = v["p"]
-            df[f"glm_{c}_q"] = v["q"]
             df[f"glm_{c}_significant"] = v["significant"]
     return df
