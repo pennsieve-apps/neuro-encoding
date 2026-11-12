@@ -1,5 +1,6 @@
 cff-version: 1.2.0
-message: If you use this app, please cite it and the works it builds on, listed under references.
+message: >-
+  If you use this app, please cite the work it implements (preferred-citation), this release, and Pennsieve (RRID:SCR_021677); the other works it builds on are listed under references.
 type: software
 title: neuro-encoding
 abstract: 'Single-neuron encoding of behaviour: occupancy-normalised tuning curves (pynapple), Skaggs spatial information
@@ -24,6 +25,40 @@ keywords:
 - glm
 - tuning-curves
 - nwb
+# The work this app implements; the release report's "How to cite" puts it first.
+preferred-citation:
+  type: software
+  title: 'NeMoS: Neural ModelS'
+  authors:
+  - family-names: Balzani
+    given-names: Edoardo
+  - family-names: Bagi
+    given-names: Bence
+  - family-names: Biswas
+    given-names: Arnab
+  - family-names: Broderick
+    given-names: William F.
+  - family-names: Venditto
+    given-names: Sarah Jo
+  - family-names: Lewis
+    given-names: Caitlin
+  - family-names: Maura
+    given-names: Camila
+  - family-names: Crespo Darriba
+    given-names: Pablo
+  - family-names: Viejo
+    given-names: Guillaume
+  - family-names: Modumudi
+    given-names: Pranati
+  - family-names: Thomson
+    given-names: Eric
+  - family-names: Williams
+    given-names: Alex
+  year: 2026
+  publisher:
+    name: Zenodo
+  doi: 10.5281/zenodo.17553286
+  repository-code: https://github.com/flatironinstitute/nemos
 references:
 - type: article
   title: Pynapple, a toolbox for data analysis in neuroscience
